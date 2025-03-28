@@ -182,11 +182,12 @@ class HandlebarsSpecTest extends TestCase
             if (!isset($func['php'])) {
                 $this->markTestIncomplete("Skip [{$spec['file']}#{$spec['description']}]#{$spec['no']} , no PHP helper code provided for this case.");
             }
-            $hname = preg_replace('/\\.|\\//', '_', "custom_helper_{$spec['no']}_{$tested}_$name");
+            $hname = preg_replace('/[.\\/]/', '_', "custom_helper_{$spec['no']}_{$tested}_$name");
             $helpers[$name] = $hname;
             $helper = patch_safestring(
                 preg_replace('/function/', "function $hname", $func['php'], 1),
             );
+            $helper = str_replace('new \Handlebars\SafeString', 'new \DevTheorem\Handlebars\SafeString', $helper);
             $helper = str_replace('$options[\'data\']', '$options->data', $helper);
             $helper = str_replace('$options[\'hash\']', '$options->hash', $helper);
             $helper = str_replace('$arguments[count($arguments)-1][\'name\'];', '$arguments[count($arguments)-1]->name;', $helper);

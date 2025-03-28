@@ -251,13 +251,13 @@ final class Parser
 
             if (!preg_match("/^(\"|\\\\')(.*)(\"|\\\\')$/", $var)) {
                 // foo]  Rule 1: no starting [ or [ not start from head
-                if (preg_match('/^[^\\[\\.]+[\\]\\[]/', $var)
+                if (preg_match('/^[^\\[.]+[\\[\\]]/', $var)
                     // [bar  Rule 2: no ending ] or ] not in the end
-                    || preg_match('/[\\[\\]][^\\]\\.]+$/', $var)
+                    || preg_match('/[\\[\\]][^].]+$/', $var)
                     // ]bar. Rule 3: middle ] not before .
-                    || preg_match('/\\][^\\]\\[\\.]+\\./', $var)
+                    || preg_match('/][^\\[.\\]]+\\./', $var)
                     // .foo[ Rule 4: middle [ not after .
-                    || preg_match('/\\.[^\\]\\[\\.]+\\[/', preg_replace('/^(..\\/)+/', '', preg_replace('/\\[[^\\]]+\\]/', '[XXX]', $var)))
+                    || preg_match('/\\.[^\\[.\\]]+\\[/', preg_replace('/^(..\\/)+/', '', preg_replace('/\\[[^\\]]+\\]/', '[XXX]', $var)))
                 ) {
                     $context->error[] = "Wrong variable naming as '$var' in $token !";
                 } else {
