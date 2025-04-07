@@ -1312,6 +1312,27 @@ class RegressionTest extends TestCase
             ],
 
             [
+                'id' => 310,
+                'template' => <<<_tpl
+                    {{#custom-block 'some-text' data=(custom-helper 
+                      opt_a='foo'
+                      opt_b='bar'
+                    )}}...{{/custom-block}}
+                    _tpl,
+                'options' => new Options(
+                    helpers: [
+                        'custom-block' => function ($string, HelperOptions $opts) {
+                            return strtoupper($string) . '-' . $opts->hash['data'] . $opts->fn();
+                        },
+                        'custom-helper' => function (HelperOptions $options) {
+                            return $options->hash['opt_a'] . $options->hash['opt_b'];
+                        },
+                    ],
+                ),
+                'expected' => 'SOME-TEXT-foobar...',
+            ],
+
+            [
                 'id' => 315,
                 'template' => '{{#each foo}}#{{@key}}({{@index}})={{.}}-{{moo}}-{{@irr}}{{/each}}',
                 'options' => new Options(

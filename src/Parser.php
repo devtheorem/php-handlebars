@@ -239,8 +239,8 @@ final class Parser
                 continue;
             }
 
-            if (preg_match('/^((\\[([^\\]]+)\\])|([^=^\\["\']+))=(.+)$/', $var, $m)) {
-                $idx = $m[3] ? $m[3] : $m[4];
+            if (preg_match('/^((\\[([^\\]]+)\\])|([^=^\\["\']+))=(.+)$/s', $var, $m)) {
+                $idx = $m[3] ?: $m[4];
                 $var = $m[5];
                 // handle foo=(...)
                 if (preg_match(SafeString::IS_SUBEXP_SEARCH, $var)) {
