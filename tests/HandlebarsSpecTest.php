@@ -126,7 +126,11 @@ class HandlebarsSpecTest extends TestCase
             ($spec['description'] === 'blocks - decorators') ||
 
             // strict mode
-            $spec['description'] === 'strict - strict mode' ||
+            (
+                $spec['description'] === 'strict - strict mode' && (
+                    str_starts_with($spec['it'], 'should allow undefined ') || $spec['it'] === 'should handle explicit undefined'
+                )
+            ) ||
             $spec['description'] === 'strict - assume objects' ||
 
             // helper for raw block

@@ -9,20 +9,11 @@ final class Runtime
 {
     /**
      * Output debug info.
-     *
-     * @param string $v expression
-     * @param string $f runtime function name
      */
-    public static function debug(string $v, string $f, RuntimeContext $cx)
+    public static function debug(string $expression, string $runtimeFn, ...$rest)
     {
-        // Build array of reference for call_user_func_array
-        $P = func_get_args();
-        $params = [];
-        for ($i = 2; $i < count($P); $i++) {
-            $params[] = &$P[$i];
-        }
         $runtime = self::class;
-        return call_user_func_array("$runtime::$f", $params);
+        return call_user_func_array("$runtime::$runtimeFn", $rest);
     }
 
     /**
