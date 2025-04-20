@@ -1,6 +1,14 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [0.9.6] Partial Indentation - 2025-04-20
+### Fixed
+- Indentation of nested partials (https://github.com/ProAI/laravel-handlebars/issues/33).
+- Parsing hash options containing line breaks (fixes https://github.com/zordius/lightncandy/issues/310).
+- Parameter type error in strict mode.
+- Parsing raw block helper params.
+
+
 ## [0.9.5] Block Parameter Parsing - 2025-03-30
 ### Fixed
 - Parsing block parameters with extra surrounding whitespace (fixes https://github.com/zordius/lightncandy/issues/371).
@@ -59,6 +67,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[0.9.6]: https://github.com/devtheorem/php-handlebars/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/devtheorem/php-handlebars/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/devtheorem/php-handlebars/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/devtheorem/php-handlebars/compare/v0.9.2...v0.9.3
