@@ -86,10 +86,6 @@ class Validator
         }
         if (is_string($token)) {
             static::pushPartial($context, $token);
-            if (is_string(end($context->parsed[0]))) {
-                $context->parsed[0][key($context->parsed[0])] .= $token;
-                return;
-            }
         } else {
             static::pushPartial($context, Token::toString($context->currentToken));
             switch ($context->currentToken[Token::POS_OP]) {
@@ -466,8 +462,6 @@ class Validator
             return true;
         }
 
-        $token[Token::POS_INNERTAG] = $inner;
-
         // Handle raw block
         if ($token[Token::POS_BEGINRAW] === '{{') {
             if ($token[Token::POS_ENDRAW] !== '}}') {
@@ -480,9 +474,10 @@ class Validator
                 if ($token[Token::POS_OP]) {
                     $context->error[] = "Wrong raw block begin with " . Token::toString($token) . ' ! Remove "' . $token[Token::POS_OP] . '" to fix this issue.';
                 }
-                $context->rawBlock = $token[Token::POS_INNERTAG];
+                // store name (before arguments) in order to find the block end
+                $context->rawBlock = preg_split('/\s+/', $token[Token::POS_INNERTAG], 2)[0];
                 Token::setDelimiter($context);
-                $token[Token::POS_OP] = '#';
+                $token[Token::POS_OP] = '#'; // parse as custom block
             }
             $token[Token::POS_ENDRAW] = '}}';
         }

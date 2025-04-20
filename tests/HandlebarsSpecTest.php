@@ -133,9 +133,6 @@ class HandlebarsSpecTest extends TestCase
             ) ||
             $spec['description'] === 'strict - assume objects' ||
 
-            // helper for raw block
-            ($spec['it'] === 'helper for raw block gets parameters') ||
-
             // lambda function in data
             $spec['it'] === 'pathed functions with context argument' ||
             $spec['it'] === 'Functions are bound to the context in knownHelpers only mode'
