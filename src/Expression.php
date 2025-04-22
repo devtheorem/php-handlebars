@@ -61,8 +61,8 @@ final class Expression
      * Get normalized handlebars expression for a variable.
      *
      * @param int $levels trace N levels top parent scope
-     * @param bool $spvar is the path start with @ or not
-     * @param array<string|int> $var variable parsed path
+     * @param bool $spvar whether the path starts with @
+     * @param array<string|null> $var variable parsed path
      *
      * @return string normalized expression for debug display
      */

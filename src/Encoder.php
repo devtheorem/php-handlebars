@@ -24,7 +24,7 @@ final class Encoder
      *
      * @return string The htmlencoded value of the specified variable
      */
-    public static function encq(array|string|int|bool|null $var)
+    public static function encq(array|string|int|bool|null $var): string
     {
         return str_replace(['=', '`', '&#039;'], ['&#x3D;', '&#x60;', '&#x27;'], self::enc($var));
     }

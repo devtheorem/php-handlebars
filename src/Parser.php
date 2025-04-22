@@ -217,7 +217,7 @@ final class Parser
     /**
      * Analyze parsed token for advanced variables.
      *
-     * @param array<bool|int|array> $vars parsed token
+     * @param list<string> $vars parsed token
      * @param string $token original token
      *
      * @return array<bool|int|array> Return parsed result
@@ -368,7 +368,7 @@ final class Parser
                         $stack += strlen($m[2]);
                     }
                     // end an argument when token ends with expected character (ignoring whitespace + first instance)
-                    if (substr($t, -1, 1) === $expect && !preg_match('/^\s+' . preg_quote($expect) . '$/', $prev)) {
+                    if (substr($t, -1, 1) === $expect && !preg_match('/^\s+' . preg_quote($expect, '/') . '$/', $prev)) {
                         if ($stack > 0 && !$quotes) {
                             preg_match('/(\\)+)$/', $t, $matchedq);
                             $stack -= isset($matchedq[0]) ? strlen($matchedq[0]) : 1;

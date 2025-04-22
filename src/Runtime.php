@@ -80,9 +80,9 @@ final class Runtime
      * @param array<array|string|int>|string|int|bool|null $v value to be output
      * @param int $ex 1 to return untouched value, default is 0
      *
-     * @return array<array|string|int>|string|int|null The raw value of the specified variable
+     * @return array<array|string|int>|string The raw value of the specified variable
      */
-    public static function raw($v, int $ex = 0)
+    public static function raw(array|string|int|bool|null $v, int $ex = 0): string|array
     {
         if ($ex) {
             return $v;
@@ -100,11 +100,11 @@ final class Runtime
             if (count(array_diff_key($v, array_keys(array_keys($v)))) > 0) {
                 return '[object Object]';
             } else {
-                $ret = [];
+                $ret = '';
                 foreach ($v as $vv) {
-                    $ret[] = static::raw($vv);
+                    $ret .= static::raw($vv) . ',';
                 }
-                return join(',', $ret);
+                return substr($ret, 0, -1);
             }
         }
 
