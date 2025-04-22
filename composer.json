@@ -1,6 +1,6 @@
 {
     "name": "devtheorem/php-handlebars",
-    "description": "An extremely fast PHP implementation of Handlebars.",
+    "description": "A fast, spec-compliant PHP implementation of Handlebars.",
     "keywords": [
         "Handlebars",
         "PHP",
@@ -23,9 +23,9 @@
         "php": ">=8.2"
     },
     "require-dev": {
-        "friendsofphp/php-cs-fixer": "^3.74",
+        "friendsofphp/php-cs-fixer": "^3.75",
         "jbboehr/handlebars-spec": "dev-master",
-        "phpstan/phpstan": "^2.1.11",
+        "phpstan/phpstan": "^2.1.12",
         "phpunit/phpunit": "^11.5"
     },
     "autoload": {

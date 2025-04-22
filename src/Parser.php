@@ -144,9 +144,9 @@ final class Parser
      *
      * @param array<string> $token preg_match results
      *
-     * @return array<bool|int|array> Return parsed result
+     * @return array{bool,array} Return parsed result
      */
-    public static function parse(array &$token, Context $context): array
+    public static function parse(array $token, Context $context): array
     {
         $vars = static::analyze($token[Token::POS_INNERTAG], $context);
         if ($token[Token::POS_OP] === '>') {
@@ -171,17 +171,18 @@ final class Parser
     /**
      * Get partial name from "foo" or [foo] or \'foo\'
      *
-     * @param array<bool|int|array> $vars parsed token
+     * @param array<bool|int|string> $vars parsed token
      * @param int $pos position of partial name
      *
      * @return array<string>|null Return one element partial name array
      */
-    public static function getPartialName(array &$vars, int $pos = 0): ?array
+    public static function getPartialName(array $vars, int $pos = 0): ?array
     {
-        if (!isset($vars[$pos])) {
+        if (!isset($vars[$pos]) || preg_match(SafeString::IS_SUBEXP_SEARCH, $vars[$pos])) {
             return null;
         }
-        return preg_match(SafeString::IS_SUBEXP_SEARCH, $vars[$pos]) ? null : [preg_replace('/^("(.+)")|(\\[(.+)\\])|(\\\\\'(.+)\\\\\')$/', '$2$4$6', $vars[$pos])];
+        assert(is_string($vars[$pos]));
+        return [preg_replace('/^("(.+)")|(\\[(.+)\\])|(\\\\\'(.+)\\\\\')$/', '$2$4$6', $vars[$pos])];
     }
 
     /**
@@ -189,7 +190,7 @@ final class Parser
      *
      * @param string $expression the full string of a sub expression
      *
-     * @return array<bool|int|array> Return parsed result
+     * @return array<string|int|array> Return parsed result
      */
     public static function subexpression(string $expression, Context $context): array
     {
@@ -332,7 +333,7 @@ final class Parser
      *
      * @param string $token preg_match results
      *
-     * @return array<bool|int|array> Return parsed result
+     * @return list<string> Return parsed result
      */
     protected static function analyze(string $token, Context $context): array
     {

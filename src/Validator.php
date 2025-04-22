@@ -401,7 +401,7 @@ class Validator
      *
      * @return bool|int Return true when required block ended, or Token::POS_BACKFILL when backfill happened.
      */
-    protected static function blockEnd(Context $context, array &$vars, ?string $match = null)
+    protected static function blockEnd(Context $context, array $vars, ?string $match = null)
     {
         $c = count($context->stack) - 2;
         $pop = $c >= 0 ? $context->stack[$c + 1] : '';
@@ -423,11 +423,11 @@ class Validator
         switch ($pop) {
             case '#':
             case '^':
-                $elsechain = array_shift($context->elseLvl);
-                if (isset($elsechain[0])) {
+                $elseChain = array_shift($context->elseLvl);
+                if (isset($elseChain[0])) {
                     // we need to repeat a level due to else chains: {{else if}}
                     $context->level++;
-                    $context->currentToken[Token::POS_RSPACE] = $context->currentToken[Token::POS_BACKFILL] = '{{/' . implode('}}{{/', $elsechain) . '}}' . Token::toString($context->currentToken) . $context->currentToken[Token::POS_RSPACE];
+                    $context->currentToken[Token::POS_RSPACE] = $context->currentToken[Token::POS_BACKFILL] = '{{/' . implode('}}{{/', $elseChain) . '}}' . Token::toString($context->currentToken) . $context->currentToken[Token::POS_RSPACE];
                     return Token::POS_BACKFILL;
                 }
                 // no break
@@ -492,12 +492,9 @@ class Validator
      *
      * @return bool Return true when is comment
      */
-    protected static function comment(array &$token, Context $context): bool
+    protected static function comment(array $token): bool
     {
-        if ($token[Token::POS_OP] === '!') {
-            return true;
-        }
-        return false;
+        return $token[Token::POS_OP] === '!';
     }
 
     /**
@@ -505,7 +502,7 @@ class Validator
      *
      * @param string[] $token detected handlebars {{ }} token
      *
-     * @return string|array<string,array|string|int>|null $token string when rawblock; array when valid token require to be compiled, null when skip the token.
+     * @return string|array{bool,array}|null Token string when rawblock, array when valid token to be compiled, null to skip the token.
      */
     protected static function token(array &$token, Context $context): string|array|null
     {
@@ -519,7 +516,7 @@ class Validator
             return null;
         }
 
-        if (static::comment($token, $context)) {
+        if (static::comment($token)) {
             static::spacing($token, $context);
             return null;
         }
@@ -654,7 +651,7 @@ class Validator
      *
      * @param array<bool|int|string|array> $vars parsed arguments list
      */
-    public static function resolveHelper(Context $context, array &$vars): bool
+    public static function resolveHelper(Context $context, array $vars): bool
     {
         if (count($vars[0]) !== 1) {
             return false;

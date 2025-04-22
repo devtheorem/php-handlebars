@@ -216,7 +216,7 @@ final class Compiler extends Validator
     /**
      * Return compiled PHP code for a handlebars token
      *
-     * @param array<string,array|bool> $info parsed information
+     * @param array{bool, array, array, string} $info parsed information
      */
     protected static function compileToken(Context $context, array $info): string
     {
@@ -240,7 +240,7 @@ final class Compiler extends Validator
                 return static::compileLookup($context, $vars, $raw);
             }
             if ($vars[0][0] === 'log') {
-                return static::compileLog($context, $vars, $raw);
+                return static::compileLog($context, $vars);
             }
         }
 
@@ -326,7 +326,7 @@ final class Compiler extends Validator
      * @param array $vars parsed arguments list
      * @param string|null $match should also match to this operator
      */
-    protected static function blockEnd(Context $context, array &$vars, ?string $match = null): string
+    protected static function blockEnd(Context $context, array $vars, ?string $match = null): string
     {
         $pop = $context->stack[count($context->stack) - 1];
 
@@ -475,9 +475,8 @@ final class Compiler extends Validator
      * Return compiled PHP code for a handlebars log token
      *
      * @param array<bool|int|string|array> $vars parsed arguments list
-     * @param bool $raw is this {{{ token or not
      */
-    protected static function compileLog(Context $context, array &$vars, bool $raw): string
+    protected static function compileLog(Context $context, array &$vars): string
     {
         array_shift($vars);
         $v = static::getVariableNames($context, $vars);

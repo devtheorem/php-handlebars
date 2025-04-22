@@ -10,7 +10,7 @@ class HelperOptions
         public readonly \Closure $fn,
         public readonly \Closure $inverse,
         public readonly int $blockParams,
-        public array|string|null &$scope,
+        public mixed &$scope,
         public array &$data,
     ) {}
 

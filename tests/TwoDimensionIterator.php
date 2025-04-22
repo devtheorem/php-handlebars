@@ -34,7 +34,7 @@ class TwoDimensionIterator implements \Iterator
     {
         ++$this->position;
         $this->x = $this->position % $this->w;
-        $this->y = floor($this->position / $this->w);
+        $this->y = (int) floor($this->position / $this->w);
     }
 
     public function valid(): bool
