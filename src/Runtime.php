@@ -59,23 +59,9 @@ final class Runtime
     }
 
     /**
-     * For {{var}} .
-     *
-     * @param array<array|string|int>|string|int|null $var value to be htmlencoded
-     */
-    public static function enc($var): string
-    {
-        if ($var instanceof SafeString) {
-            return (string) $var;
-        }
-
-        return Encoder::enc($var);
-    }
-
-    /**
      * For {{var}} , do html encode just like handlebars.js .
      *
-     * @param array<array|string|int>|string|int|null $var value to be htmlencoded
+     * @param array<array|string|int>|string|SafeString|int|null $var value to be htmlencoded
      *
      * @return string The htmlencoded value of the specified variable
      */
@@ -91,7 +77,7 @@ final class Runtime
     /**
      * Get string value
      *
-     * @param array<array|string|int>|string|int|null $v value to be output
+     * @param array<array|string|int>|string|int|bool|null $v value to be output
      * @param int $ex 1 to return untouched value, default is 0
      *
      * @return array<array|string|int>|string|int|null The raw value of the specified variable
@@ -128,7 +114,7 @@ final class Runtime
     /**
      * For {{#var}} or {{#each}} .
      *
-     * @param array<array|string|int>|string|int|null|\Traversable $v value for the section
+     * @param array<array|string|int>|string|int|bool|null|\Traversable $v value for the section
      * @param array<string>|null $bp block parameters
      * @param array<array|string|int>|string|int|null $in input data with current scope
      * @param bool $each true when rendering #each
@@ -239,7 +225,7 @@ final class Runtime
     /**
      * For {{#with}} .
      *
-     * @param array<array|string|int>|string|int|null $v value to be the new context
+     * @param array<array|string|int>|string|int|bool|null $v value to be the new context
      * @param array<array|string|int>|\stdClass|null $in input data with current scope
      * @param array<string>|null $bp block parameters
      * @param \Closure $cb callback function to render child context
@@ -266,13 +252,13 @@ final class Runtime
     /**
      * Get merged context.
      *
-     * @param array<array|string|int>|string|int|null $a the context to be merged
+     * @param array<array|string|int>|object|string|int|null $a the context to be merged
      * @param array<array|string|int>|string|int|null $b the new context to overwrite
      *
      * @return array<array|string|int>|string|int the merged context object
      *
      */
-    public static function merge($a, $b)
+    public static function merge(mixed $a, mixed $b)
     {
         if (is_array($b)) {
             if ($a === null) {

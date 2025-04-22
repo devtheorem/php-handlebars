@@ -2,7 +2,7 @@
 
 namespace DevTheorem\Handlebars;
 
-class SafeString
+class SafeString implements \Stringable
 {
     public const EXTENDED_COMMENT_SEARCH = '/{{!--.*?--}}/s';
     public const IS_SUBEXP_SEARCH = '/^\(.+\)$/s';

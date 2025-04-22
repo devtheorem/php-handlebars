@@ -104,8 +104,8 @@ class ErrorTest extends TestCase
     {
         if (!isset($test['expected'])) {
             // should compile without error
-            Handlebars::precompile($test['template'], $test['options']);
-            $this->assertTrue(true);
+            $code = Handlebars::precompile($test['template'], $test['options']);
+            $this->assertNotEmpty($code);
             return;
         }
 
