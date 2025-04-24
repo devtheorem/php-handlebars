@@ -2,49 +2,15 @@
 
 use DevTheorem\Handlebars\Handlebars;
 use DevTheorem\Handlebars\Options;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-
-$tested = 0;
-
-function recursive_unset(&$array, $unwanted_key): void
-{
-    if (!is_array($array)) {
-        return;
-    }
-    if (isset($array[$unwanted_key])) {
-        unset($array[$unwanted_key]);
-    }
-    foreach ($array as &$value) {
-        if (is_array($value)) {
-            recursive_unset($value, $unwanted_key);
-        }
-    }
-}
-
-function patch_safestring($code)
-{
-    $classname = '\\DevTheorem\\Handlebars\\SafeString';
-    return preg_replace('/ SafeString(\s*\(.*?\))?/', ' ' . $classname . '$1', $code);
-}
-
-function data_helpers_fix(array &$spec)
-{
-    if (isset($spec['data']) && is_array($spec['data'])) {
-        foreach ($spec['data'] as $key => $value) {
-            if (is_array($value) && isset($value['!code']) && isset($value['php'])) {
-                $spec['helpers'][$key] = $value;
-                unset($spec['data'][$key]);
-            }
-        }
-    }
-}
 
 /**
  * Used by vendor/jbboehr/handlebars-spec/spec/data.json
  */
 class Utils
 {
-    public static function createFrame($data)
+    public static function createFrame(mixed $data): mixed
     {
         if (is_array($data)) {
             $r = [];
@@ -57,15 +23,26 @@ class Utils
     }
 }
 
+/**
+ * @phpstan-type JsonSpec array{
+ *     file: string, no: int, message: string|null, data: null|int|bool|string|array<mixed>,
+ *     it: string, description: string, expected?: string, helpers?: array<mixed>,
+ *     partials?: array<mixed>, compileOptions?: array<mixed>, template: string,
+ *     exception?: string, runtimeOptions?: array<mixed>, number?: string,
+ * }
+ */
 class HandlebarsSpecTest extends TestCase
 {
-    #[\PHPUnit\Framework\Attributes\DataProvider("jsonSpecProvider")]
-    public function testSpecs($spec)
-    {
-        global $tested;
+    private int $tested = 0;
 
-        recursive_unset($spec['data'], '!sparsearray');
-        data_helpers_fix($spec);
+    /**
+     * @param JsonSpec $spec
+     */
+    #[DataProvider("jsonSpecProvider")]
+    public function testSpecs(array $spec): void
+    {
+        self::unsetRecursive($spec['data'], '!sparsearray');
+        self::fixDataHelpers($spec);
 
         // Fix {} for these test cases
         if (
@@ -176,16 +153,16 @@ class HandlebarsSpecTest extends TestCase
         }
 
         // setup helpers
-        $tested++;
+        $this->tested++;
         $helpers = [];
         $helpersList = '';
         foreach (is_array($spec['helpers'] ?? null) ? $spec['helpers'] : [] as $name => $func) {
             if (!isset($func['php'])) {
                 $this->markTestIncomplete("Skip [{$spec['file']}#{$spec['description']}]#{$spec['no']} , no PHP helper code provided for this case.");
             }
-            $hname = preg_replace('/[.\\/]/', '_', "custom_helper_{$spec['no']}_{$tested}_$name");
+            $hname = preg_replace('/[.\\/]/', '_', "custom_helper_{$spec['no']}_{$this->tested}_$name");
             $helpers[$name] = $hname;
-            $helper = patch_safestring(
+            $helper = self::patchSafeString(
                 preg_replace('/function/', "function $hname", $func['php'], 1),
             );
             $helper = str_replace('new \Handlebars\SafeString', 'new \DevTheorem\Handlebars\SafeString', $helper);
@@ -283,7 +260,10 @@ class HandlebarsSpecTest extends TestCase
         $this->assertEquals($spec['expected'], $result, "[{$spec['file']}#{$spec['description']}]#{$spec['no']}:{$spec['it']}\nHELPERS:$helpersList");
     }
 
-    public static function jsonSpecProvider()
+    /**
+     * @return list<array{JsonSpec}>
+     */
+    public static function jsonSpecProvider(): array
     {
         $ret = [];
 
@@ -298,7 +278,7 @@ class HandlebarsSpecTest extends TestCase
             }
             $i = 0;
             $json = json_decode(file_get_contents($file), true);
-            $ret = array_merge($ret, array_map(function ($d) use ($file, &$i) {
+            $ret = array_merge($ret, array_map(function (array $d) use ($file, &$i) {
                 $d['file'] = $file;
                 $d['no'] = ++$i;
                 if (!isset($d['message'])) {
@@ -312,5 +292,41 @@ class HandlebarsSpecTest extends TestCase
         }
 
         return $ret;
+    }
+
+    /**
+     * @param JsonSpec $spec
+     */
+    private static function fixDataHelpers(array &$spec): void
+    {
+        if (isset($spec['data']) && is_array($spec['data'])) {
+            foreach ($spec['data'] as $key => $value) {
+                if (is_array($value) && isset($value['!code']) && isset($value['php'])) {
+                    $spec['helpers'][$key] = $value;
+                    unset($spec['data'][$key]);
+                }
+            }
+        }
+    }
+
+    private static function unsetRecursive(mixed &$array, string $unwanted_key): void
+    {
+        if (!is_array($array)) {
+            return;
+        }
+        if (isset($array[$unwanted_key])) {
+            unset($array[$unwanted_key]);
+        }
+        foreach ($array as &$value) {
+            if (is_array($value)) {
+                self::unsetRecursive($value, $unwanted_key);
+            }
+        }
+    }
+
+    private static function patchSafeString(string $code): string
+    {
+        $classname = '\\DevTheorem\\Handlebars\\SafeString';
+        return preg_replace('/ SafeString(\s*\(.*?\))?/', ' ' . $classname . '$1', $code);
     }
 }

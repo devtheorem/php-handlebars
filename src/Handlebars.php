@@ -5,11 +5,12 @@ namespace DevTheorem\Handlebars;
 final class Handlebars
 {
     protected static Context $lastContext;
+    /** @var array<mixed> */
     public static array $lastParsed;
 
     /**
      * Compiles a template so it can be executed immediately.
-     * @return \Closure(mixed=, array=):string
+     * @return \Closure(mixed=, array<mixed>=):string
      */
     public static function compile(string $template, Options $options = new Options()): \Closure
     {

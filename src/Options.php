@@ -4,6 +4,10 @@ namespace DevTheorem\Handlebars;
 
 readonly class Options
 {
+    /**
+     * @param array<string, callable> $helpers
+     * @param array<string, string> $partials
+     */
     public function __construct(
         public bool $knownHelpersOnly = false,
         public bool $noEscape = false,

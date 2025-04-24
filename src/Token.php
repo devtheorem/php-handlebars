@@ -32,14 +32,11 @@ final class Token
     {
         $left = '{{';
         $right = '}}';
-        $context->tokens['startchar'] = substr($left, 0, 1);
-        $context->tokens['left'] = $left;
-        $context->tokens['right'] = $right;
         $rawcount = $context->rawBlock ? '{2}' : '{0,2}';
         $left = preg_quote($left);
         $right = preg_quote($right);
 
-        $context->tokens['search'] = "/^(.*?)(\\s*)($left)(~?)(\\{{$rawcount})\\s*([\\^#\\/!&>\\*]{0,2})(.*?)\\s*(\\}{$rawcount})(~?)($right)(\\s*)(.*)\$/s";
+        $context->tokenSearch = "/^(.*?)(\\s*)($left)(~?)(\\{{$rawcount})\\s*([\\^#\\/!&>\\*]{0,2})(.*?)\\s*(\\}{$rawcount})(~?)($right)(\\s*)(.*)\$/s";
     }
 
     /**

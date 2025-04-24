@@ -8,6 +8,9 @@ use PHPUnit\Framework\TestCase;
 
 class ParserTest extends TestCase
 {
+    /**
+     * @return list<array{array{string}|null, array<string|int>, int}>
+     */
     public static function getPartialNameProvider(): array
     {
         return [
@@ -20,6 +23,10 @@ class ParserTest extends TestCase
         ];
     }
 
+    /**
+     * @param array{string}|null $expected
+     * @param array<string|int> $vars
+     */
     #[DataProvider('getPartialNameProvider')]
     public function testGetPartialName(?array $expected, array $vars, int $pos): void
     {

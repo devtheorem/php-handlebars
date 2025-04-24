@@ -16,7 +16,7 @@ final class Parser
     /**
      * Get partial block id and fix the variable list
      *
-     * @param array<bool|int|string|array> $vars parsed token
+     * @param array<bool|int|string|array<mixed>> $vars parsed token
      */
     public static function getPartialBlock(array &$vars): int
     {
@@ -31,7 +31,8 @@ final class Parser
     /**
      * Get block params and fix the variable list
      *
-     * @param array<bool|int|string|array> $vars parsed token
+     * @param array<bool|int|string|array<mixed>> $vars parsed token
+     * @return array<mixed>
      */
     public static function getBlockParams(array &$vars): array
     {
@@ -144,7 +145,7 @@ final class Parser
      *
      * @param array<string> $token preg_match results
      *
-     * @return array{bool,array} Return parsed result
+     * @return array{bool,array<mixed>} Return parsed result
      */
     public static function parse(array $token, Context $context): array
     {
@@ -190,7 +191,7 @@ final class Parser
      *
      * @param string $expression the full string of a sub expression
      *
-     * @return array<string|int|array> Return parsed result
+     * @return array{int, array<mixed>, string} Return parsed result
      */
     public static function subexpression(string $expression, Context $context): array
     {
@@ -207,7 +208,7 @@ final class Parser
     /**
      * Check a parsed result is a subexpression or not
      *
-     * @param array<string|int|array> $var
+     * @param array<string|int|array<mixed>> $var
      */
     public static function isSubExp(array $var): bool
     {
@@ -220,7 +221,7 @@ final class Parser
      * @param list<string> $vars parsed token
      * @param string $token original token
      *
-     * @return array<bool|int|array> Return parsed result
+     * @return array<bool|int|array<mixed>> Return parsed result
      */
     protected static function advancedVariable(array $vars, Context $context, string $token): array
     {

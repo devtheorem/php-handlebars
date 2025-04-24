@@ -6,12 +6,19 @@ use DevTheorem\Handlebars\Handlebars;
 use DevTheorem\Handlebars\HelperOptions;
 use DevTheorem\Handlebars\Options;
 use DevTheorem\Handlebars\SafeString;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @phpstan-type RegIssue array{id?: int, template: string, data?: array<mixed>, options?: Options, expected: string}
+ */
 class RegressionTest extends TestCase
 {
-    #[\PHPUnit\Framework\Attributes\DataProvider("issueProvider")]
-    public function testIssues($issue)
+    /**
+     * @param RegIssue $issue
+     */
+    #[DataProvider("issueProvider")]
+    public function testIssues(array $issue): void
     {
         $templateSpec = Handlebars::precompile($issue['template'], $issue['options'] ?? new Options());
         $context = Handlebars::getContext();
@@ -29,6 +36,9 @@ class RegressionTest extends TestCase
         $this->assertEquals($issue['expected'], $result, "PHP CODE:\n$templateSpec");
     }
 
+    /**
+     * @return list<array{RegIssue}>
+     */
     public static function issueProvider(): array
     {
         $test_helpers = ['ouch' => fn() => 'ok'];

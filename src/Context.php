@@ -7,6 +7,21 @@ namespace DevTheorem\Handlebars;
  */
 final class Context
 {
+    /**
+     * @param array<mixed> $stack
+     * @param array<mixed>|null $currentToken
+     * @param string[] $error
+     * @param array<mixed> $elseLvl
+     * @param array<string, string> $usedPartial
+     * @param list<string> $partialStack
+     * @param array<string, string> $partialCode
+     * @param array<string, true> $usedHelpers
+     * @param array<mixed> $parsed
+     * @param array<string, string> $partials
+     * @param array<mixed> $partialBlock
+     * @param array<mixed> $inlinePartial
+     * @param array<string, callable> $helpers
+     */
     public function __construct(
         public readonly Options $options,
         public int $level = 0,
@@ -15,12 +30,9 @@ final class Context
         public array $error = [],
         public array $elseLvl = [],
         public bool $elseChain = false,
-        public array $tokens = [
-            'ahead' => false,
-            'current' => 0,
-            'count' => 0,
-            'partialind' => '',
-        ],
+        public string $tokenSearch = '',
+        public string $partialIndent = '',
+        public int|false $tokenAhead = false,
         public array $usedPartial = [],
         public array $partialStack = [],
         public array $partialCode = [],
@@ -34,33 +46,17 @@ final class Context
         public array $inlinePartial = [],
         public array $helpers = [],
         public string|false $rawBlock = false,
-        public readonly array $ops = [
-            'separator' => '.',
-            'f_start' => 'return ',
-            'f_end' => ';',
-            'op_start' => 'return ',
-            'op_end' => ';',
-            'cnd_start' => '.(',
-            'cnd_then' => ' ? ',
-            'cnd_else' => ' : ',
-            'cnd_end' => ').',
-            'cnd_nend' => ')',
-        ],
+        public readonly string $startChar = '{',
+        public readonly string $separator = '.',
+        public readonly string $cndStart = '.(',
+        public readonly string $cndEnd = ').',
+        public readonly string $cndThen = ' ? ',
+        public readonly string $cndElse = ' : ',
+        public readonly string $fStart = 'return ',
+        public readonly string $fEnd = ';',
     ) {
         $this->partials = $options->partials;
-
-        foreach ($options->helpers as $name => $func) {
-            $tn = is_int($name) ? $func : $name;
-            if (is_callable($func)) {
-                $this->helpers[$tn] = $func;
-            } else {
-                if (is_array($func)) {
-                    $this->error[] = "Custom helper $name must be a function, not an array.";
-                } else {
-                    $this->error[] = "Custom helper '$tn' must be a function.";
-                }
-            }
-        }
+        $this->helpers = $options->helpers;
     }
 
     /**

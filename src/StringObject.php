@@ -4,6 +4,7 @@ namespace DevTheorem\Handlebars;
 
 /**
  * Class for Object property access on a string.
+ * @implements \ArrayAccess<string|int, mixed>
  */
 #[\AllowDynamicProperties]
 class StringObject implements \ArrayAccess, \Stringable

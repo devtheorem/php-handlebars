@@ -4,11 +4,16 @@ namespace DevTheorem\Handlebars\Test;
 
 use DevTheorem\Handlebars\Handlebars;
 use DevTheorem\Handlebars\Options;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * @phpstan-type RenderTest array{template: string, options?: Options, expected: string}
+ * @phpstan-type ErrorCase array{template: string, options: Options, expected?: list<string>}
+ */
 class ErrorTest extends TestCase
 {
-    public function testException()
+    public function testException(): void
     {
         try {
             $php = Handlebars::precompile('{{{foo}}');
@@ -17,7 +22,7 @@ class ErrorTest extends TestCase
         }
     }
 
-    public function testLog()
+    public function testLog(): void
     {
         $template = Handlebars::compile('{{log foo}}');
 
@@ -38,19 +43,25 @@ class ErrorTest extends TestCase
         ini_restore('error_log');
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider("renderErrorProvider")]
-    public function testRenderingException($test)
+    /**
+     * @param RenderTest $test
+     */
+    #[DataProvider("renderErrorProvider")]
+    public function testRenderingException(array $test): void
     {
         $php = Handlebars::precompile($test['template'], $test['options'] ?? new Options());
         $renderer = Handlebars::template($php);
         try {
-            $renderer($test['data'] ?? null);
+            $renderer(null);
             $this->fail("Expected to throw exception: {$test['expected']}. CODE: $php");
         } catch (\Exception $E) {
             $this->assertEquals($test['expected'], $E->getMessage());
         }
     }
 
+    /**
+     * @return list<array{RenderTest}>
+     */
     public static function renderErrorProvider(): array
     {
         $errorCases = [
@@ -99,8 +110,11 @@ class ErrorTest extends TestCase
         return array_map(fn($i) => [$i], $errorCases);
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider("errorProvider")]
-    public function testErrors($test)
+    /**
+     * @param ErrorCase $test
+     */
+    #[DataProvider("errorProvider")]
+    public function testErrors(array $test): void
     {
         if (!isset($test['expected'])) {
             // should compile without error
@@ -111,12 +125,15 @@ class ErrorTest extends TestCase
 
         try {
             Handlebars::precompile($test['template'], $test['options']);
-            $this->fail("Expected to throw exception: {$test['expected']}");
+            $this->fail("Expected to throw exception: {$test['expected'][0]}");
         } catch (\Exception $e) {
             $this->assertEquals($test['expected'], explode("\n", $e->getMessage()));
         }
     }
 
+    /**
+     * @return list<array{ErrorCase}>
+     */
     public static function errorProvider(): array
     {
         $errorCases = [
@@ -283,15 +300,6 @@ class ErrorTest extends TestCase
                 'template' => '{{te.[e[s.t].endQ}}',
             ],
             [
-                'template' => '{{helper}}',
-                'options' => new Options(
-                    helpers: [
-                        'foo' => ['bad input'],
-                    ],
-                ),
-                'expected' => 'Custom helper foo must be a function, not an array.',
-            ],
-            [
                 'template' => '{{typeof hello}}',
             ],
             [
@@ -367,13 +375,6 @@ class ErrorTest extends TestCase
             [
                 'template' => '{{>not_found}}',
                 'expected' => "The partial not_found could not be found",
-            ],
-            [
-                'template' => '{{abc}}',
-                'options' => new Options(
-                    helpers: ['abc'],
-                ),
-                'expected' => "Custom helper 'abc' must be a function.",
             ],
             [
                 'template' => '{{test_join (foo bar)}}',

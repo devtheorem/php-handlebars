@@ -92,12 +92,12 @@ class Partial
         $context->merge($tmpContext);
 
         if (!$context->options->preventIndent) {
-            $code = preg_replace('/^/m', "'{$context->ops['separator']}\$sp{$context->ops['separator']}'", $code);
+            $code = preg_replace('/^/m', "'{$context->separator}\$sp{$context->separator}'", $code);
             // remove extra spaces before partial
             $code = preg_replace('/^\'\\.\\$sp\\.\'(\'\\.LR::p\\()/m', '$1', $code, 1);
             // add spaces after partial
             $code = preg_replace('/^(\'\\.LR::p\\(.+\\)\\.)(\'.+)/m', '$1\$sp.$2', $code, 1);
         }
-        return "function (\$cx, \$in, \$sp) {{$context->ops['op_start']}'$code'{$context->ops['op_end']}}";
+        return "function (\$cx, \$in, \$sp) {{$context->fStart}'$code'{$context->fEnd}}";
     }
 }

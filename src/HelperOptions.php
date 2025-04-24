@@ -4,6 +4,10 @@ namespace DevTheorem\Handlebars;
 
 class HelperOptions
 {
+    /**
+     * @param array<mixed> $hash
+     * @param array<mixed> $data
+     */
     public function __construct(
         public readonly string $name,
         public readonly array $hash,
@@ -14,12 +18,12 @@ class HelperOptions
         public array &$data,
     ) {}
 
-    public function fn(...$args): string
+    public function fn(mixed ...$args): string
     {
         return ($this->fn)(...$args);
     }
 
-    public function inverse(...$args): string
+    public function inverse(mixed ...$args): string
     {
         return ($this->inverse)(...$args);
     }

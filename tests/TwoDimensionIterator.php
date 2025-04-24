@@ -2,6 +2,9 @@
 
 namespace DevTheorem\Handlebars\Test;
 
+/**
+ * @implements \Iterator<string, int>
+ */
 class TwoDimensionIterator implements \Iterator
 {
     private int $position = 0;
@@ -20,7 +23,7 @@ class TwoDimensionIterator implements \Iterator
         $this->y = 0;
     }
 
-    public function current(): int|float
+    public function current(): int
     {
         return $this->x * $this->y;
     }

@@ -10,7 +10,7 @@ final class Runtime
     /**
      * Output debug info.
      */
-    public static function debug(string $expression, string $runtimeFn, ...$rest)
+    public static function debug(string $expression, string $runtimeFn, mixed ...$rest): mixed
     {
         $runtime = self::class;
         return call_user_func_array("$runtime::$runtimeFn", $rest);
@@ -26,6 +26,7 @@ final class Runtime
 
     /**
      * For {{log}}.
+     * @param array<mixed> $v
      */
     public static function lo(array $v): string
     {
@@ -36,7 +37,7 @@ final class Runtime
     /**
      * For {{#if}} and {{#unless}}.
      *
-     * @param array<array|string|int>|string|int|float|bool|null $v value to be tested
+     * @param array<array<mixed>|string|int>|string|int|float|bool|null $v value to be tested
      * @param bool $zero include zero as true
      *
      * @return bool Return true when the value is not null nor false.
@@ -49,7 +50,7 @@ final class Runtime
     /**
      * For {{^var}} .
      *
-     * @param array<array|string|int>|string|int|bool|null $v value to be tested
+     * @param array<array<mixed>|string|int>|string|int|bool|null $v value to be tested
      *
      * @return bool Return true when the value is null or false or empty
      */
@@ -61,7 +62,7 @@ final class Runtime
     /**
      * For {{var}} , do html encode just like handlebars.js .
      *
-     * @param array<array|string|int>|string|SafeString|int|null $var value to be htmlencoded
+     * @param array<array<mixed>|string|int>|string|SafeString|int|null $var value to be htmlencoded
      *
      * @return string The htmlencoded value of the specified variable
      */
@@ -77,10 +78,10 @@ final class Runtime
     /**
      * Get string value
      *
-     * @param array<array|string|int>|string|int|bool|null $v value to be output
+     * @param array<array<mixed>|string|int>|string|int|bool|null $v value to be output
      * @param int $ex 1 to return untouched value, default is 0
      *
-     * @return array<array|string|int>|string The raw value of the specified variable
+     * @return array<array<mixed>|string|int>|string The raw value of the specified variable
      */
     public static function raw(array|string|int|bool|null $v, int $ex = 0): string|array
     {
@@ -114,9 +115,9 @@ final class Runtime
     /**
      * For {{#var}} or {{#each}} .
      *
-     * @param array<array|string|int>|string|int|bool|null|\Traversable $v value for the section
+     * @param array<array<mixed>|string|int>|string|int|bool|null|\Traversable<string, mixed> $v value for the section
      * @param array<string>|null $bp block parameters
-     * @param array<array|string|int>|string|int|null $in input data with current scope
+     * @param array<array<mixed>|string|int>|string|int|null $in input data with current scope
      * @param bool $each true when rendering #each
      * @param \Closure $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
@@ -157,13 +158,14 @@ final class Runtime
                 $cx->scopes[] = $in;
             }
             $i = 0;
-            $old_spvar = $cx->spVars ?? [];
-            $cx->spVars = array_merge(['root' => $old_spvar['root'] ?? null], $old_spvar, ['_parent' => $old_spvar]);
+            $oldSpvar = $cx->spVars ?? [];
+            $cx->spVars = array_merge(['root' => $oldSpvar['root'] ?? null], $oldSpvar, ['_parent' => $oldSpvar]);
             if (!$isTrav) {
                 $last = count($keys) - 1;
             }
 
             $isSparceArray = $isObj && (count(array_filter(array_keys($v), 'is_string')) == 0);
+
             foreach ($v as $index => $raw) {
                 $cx->spVars['first'] = ($i === 0);
                 $cx->spVars['last'] = ($i == $last);
@@ -178,6 +180,7 @@ final class Runtime
                 }
                 $ret[] = $cb($cx, $raw);
             }
+
             if ($isObj) {
                 unset($cx->spVars['key']);
             } else {
@@ -190,12 +193,11 @@ final class Runtime
             }
             return join('', $ret);
         }
+
         if ($each) {
-            if ($else !== null) {
-                return $else($cx, $in);
-            }
-            return '';
+            return ($else !== null) ? $else($cx, $in) : '';
         }
+
         if ($isAry) {
             if ($push) {
                 $cx->scopes[] = $in;
@@ -225,8 +227,8 @@ final class Runtime
     /**
      * For {{#with}} .
      *
-     * @param array<array|string|int>|string|int|bool|null $v value to be the new context
-     * @param array<array|string|int>|\stdClass|null $in input data with current scope
+     * @param array<array<mixed>|string|int>|string|int|bool|null $v value to be the new context
+     * @param array<array<mixed>|string|int>|\stdClass|null $in input data with current scope
      * @param array<string>|null $bp block parameters
      * @param \Closure $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
@@ -236,9 +238,11 @@ final class Runtime
         if (isset($bp[0])) {
             $v = static::merge($v, [$bp[0] => $v]);
         }
+
         if ($v === false || $v === null || (is_array($v) && count($v) === 0)) {
             return $else ? $else($cx, $in) : '';
         }
+
         if ($v === $in) {
             $ret = $cb($cx, $v);
         } else {
@@ -246,19 +250,19 @@ final class Runtime
             $ret = $cb($cx, $v);
             array_pop($cx->scopes);
         }
+
         return $ret;
     }
 
     /**
      * Get merged context.
      *
-     * @param array<array|string|int>|object|string|int|null $a the context to be merged
-     * @param array<array|string|int>|string|int|null $b the new context to overwrite
+     * @param array<array<mixed>|string|int>|object|string|int|null $a the context to be merged
+     * @param array<array<mixed>|string|int>|string|int|null $b the new context to overwrite
      *
-     * @return array<array|string|int>|string|int the merged context object
-     *
+     * @return array<array<mixed>|string|int>|string|int the merged context object
      */
-    public static function merge(mixed $a, mixed $b)
+    public static function merge(mixed $a, mixed $b): mixed
     {
         if (is_array($b)) {
             if ($a === null) {
@@ -281,7 +285,7 @@ final class Runtime
      * For {{> partial}} .
      *
      * @param string $p partial name
-     * @param array<array|string|int>|string|int|null $v value to be the new context
+     * @param array<array<mixed>|string|int>|string|int|null $v value to be the new context
      */
     public static function p(RuntimeContext $cx, string $p, $v, int $pid, string $sp): string
     {
@@ -302,9 +306,8 @@ final class Runtime
      *
      * @param string $p partial name
      * @param \Closure $code the compiled partial code
-     *
      */
-    public static function in(RuntimeContext $cx, string $p, \Closure $code)
+    public static function in(RuntimeContext $cx, string $p, \Closure $code): void
     {
         $cx->partials[$p] = $code;
     }
@@ -313,8 +316,8 @@ final class Runtime
      * For single custom helpers.
      *
      * @param string $ch the name of custom helper to be executed
-     * @param array<array|string|int> $vars variables for the helper
-     * @param array<string,array|string|int> $_this current rendering context for the helper
+     * @param array<array<mixed>|string|int> $vars variables for the helper
+     * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
      */
     public static function hbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this): mixed
     {
@@ -339,8 +342,8 @@ final class Runtime
      * For block custom helpers.
      *
      * @param string $ch the name of custom helper to be executed
-     * @param array<array|string|int> $vars variables for the helper
-     * @param array<string,array|string|int> $_this current rendering context for the helper
+     * @param array<array<mixed>|string|int> $vars variables for the helper
+     * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
      * @param bool $inverted the logic will be inverted
      * @param \Closure|null $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
@@ -424,7 +427,7 @@ final class Runtime
      * Execute custom helper with prepared options
      *
      * @param string $ch the name of custom helper to be executed
-     * @param array<array|string|int> $vars variables for the helper
+     * @param array<array<mixed>|string|int> $vars variables for the helper
      */
     public static function exch(RuntimeContext $cx, string $ch, array $vars, HelperOptions $options): mixed
     {

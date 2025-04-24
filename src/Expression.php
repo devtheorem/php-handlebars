@@ -30,9 +30,9 @@ final class Expression
     /**
      * Analyze an expression
      *
-     * @param array<array|string|int> $var variable parsed path
+     * @param array<array<mixed>|string|int> $var variable parsed path
      *
-     * @return array{int, bool, array} analyzed result
+     * @return array{int, bool, array<mixed>} analyzed result
      */
     public static function analyze(array $var): array
     {

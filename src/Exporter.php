@@ -30,7 +30,11 @@ final class Exporter
                 $ret .= ("            '$name' => " . static::closure($func) . ",\n");
                 continue;
             }
-            $ret .= "            '$name' => '$func',\n";
+            if (is_string($func)) {
+                $ret .= "            '$name' => '$func',\n";
+            } else {
+                throw new \Exception('Unexpected helper type: ' . gettype($func));
+            }
         }
 
         return "[$ret]";
