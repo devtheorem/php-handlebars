@@ -1,6 +1,6 @@
 MIT License
 
-Copyright 2013-2021 Zordius Chen. All Rights Reserved.
+Copyright 2013-2021 Zordius Chen. All Rights Reserved.  
 Copyright (c) 2024-2025 Theodore Brown
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
