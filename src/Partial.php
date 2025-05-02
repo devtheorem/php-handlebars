@@ -55,6 +55,9 @@ class Partial
         if (isset($context->partials[$name])) {
             return $context->partials[$name];
         }
+        if ($context->partialResolver) {
+            return ($context->partialResolver)($context, $name);
+        }
         return null;
     }
 

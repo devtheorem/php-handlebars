@@ -65,7 +65,9 @@ echo $template(['first' => 'John']); // Error: Runtime: [last] does not exist
 * `ignoreStandalone`: Disables standalone tag removal. When set, blocks and partials that are on their own line will not remove the whitespace on that line.
 * `explicitPartialContext`: Disables implicit context for partials. When enabled, partials that are not passed a context value will execute against an empty object.
 * `helpers`: Provide a key => value array of custom helper functions.
+* `helperResolver`: A closure which will be called for any helper not in the `helpers` array to return a function for it.
 * `partials`: Provide a key => value array of custom partial templates.
+* `partialResolver`: A closure which will be called for any partial not in the `partials` array to return a template for it.
 
 ## Custom Helpers
 

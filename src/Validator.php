@@ -658,7 +658,20 @@ class Validator
             return false;
         }
 
-        return isset($context->helpers[$vars[0][0]]);
+        $name = $vars[0][0];
+        if (isset($context->helpers[$name])) {
+            return true;
+        }
+
+        if ($context->helperResolver) {
+            $helper = ($context->helperResolver)($context, $name);
+            if ($helper) {
+                $context->helpers[$name] = $helper;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

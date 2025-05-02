@@ -2,6 +2,8 @@
 
 namespace DevTheorem\Handlebars;
 
+use Closure;
+
 /**
  * @internal
  */
@@ -18,9 +20,11 @@ final class Context
      * @param array<string, true> $usedHelpers
      * @param array<mixed> $parsed
      * @param array<string, string> $partials
+     * @param null|Closure(Context, string):(string|null) $partialResolver
      * @param array<mixed> $partialBlock
      * @param array<mixed> $inlinePartial
      * @param array<string, callable> $helpers
+     * @param null|Closure(Context, string):(Closure|null) $helperResolver
      */
     public function __construct(
         public readonly Options $options,
@@ -42,9 +46,11 @@ final class Context
         public bool $compile = false,
         public array $parsed = [],
         public array $partials = [],
+        public ?Closure $partialResolver = null,
         public array $partialBlock = [],
         public array $inlinePartial = [],
         public array $helpers = [],
+        public ?Closure $helperResolver = null,
         public string|false $rawBlock = false,
         public readonly string $startChar = '{',
         public readonly string $separator = '.',
@@ -56,7 +62,9 @@ final class Context
         public readonly string $fEnd = ';',
     ) {
         $this->partials = $options->partials;
+        $this->partialResolver = $options->partialResolver;
         $this->helpers = $options->helpers;
+        $this->helperResolver = $options->helperResolver;
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace DevTheorem\Handlebars\Test;
 
+use DevTheorem\Handlebars\Context;
 use DevTheorem\Handlebars\Handlebars;
 use DevTheorem\Handlebars\HelperOptions;
 use DevTheorem\Handlebars\Options;
@@ -827,6 +828,29 @@ class RegressionTest extends TestCase
                 'template' => '{{#unless 0 includeZero=true}}1{{else if foo}}2{{else}}3{{/unless}}',
                 'data' => ['foo' => false],
                 'expected' => '3',
+            ],
+
+            [
+                'id' => 201,
+                'template' => '{{foo "world"}}',
+                'options' => new Options(
+                    helperResolver: function () {
+                        return fn(string $name) => "Hello, $name";
+                    },
+                ),
+                'expected' => 'Hello, world',
+            ],
+            [
+                'id' => 201,
+                'template' => '{{#foo "test"}}World{{/foo}}',
+                'options' => new Options(
+                    helperResolver: function (Context $cx, string $name) {
+                        return function ($name, HelperOptions $options) {
+                            return "$name = " . $options->fn();
+                        };
+                    },
+                ),
+                'expected' => 'test = World',
             ],
 
             [
@@ -2028,6 +2052,16 @@ class RegressionTest extends TestCase
             [
                 'template' => '{{#>foo}}inline\'partial{{/foo}}',
                 'expected' => 'inline\'partial',
+            ],
+
+            [
+                'template' => '{{>foo}} and {{>bar}}',
+                'options' => new Options(
+                    partialResolver: function (Context $context, string $name) {
+                        return "PARTIAL: $name";
+                    },
+                ),
+                'expected' => 'PARTIAL: foo and PARTIAL: bar',
             ],
 
             [
