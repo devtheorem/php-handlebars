@@ -46,34 +46,26 @@ class HandlebarsSpecTest extends TestCase
 
         // Fix {} for these test cases
         if (
-            ($spec['it'] === 'should override template partials') ||
-            ($spec['it'] === 'should override partials down the entire stack') ||
-            ($spec['it'] === 'should define inline partials for block')
+            $spec['it'] === 'should override template partials' ||
+            $spec['it'] === 'should override partials down the entire stack' ||
+            $spec['it'] === 'should define inline partials for block'
         ) {
             $spec['data'] = new \stdClass();
         }
 
-        //// Skip bad specs
-        // 1. No expected nor exception in spec
-        if (!isset($spec['expected']) && !isset($spec['exception'])) {
-            $this->markTestIncomplete("Skip [{$spec['file']}#{$spec['description']}]#{$spec['no']} , no expected result in spec, skip.");
-        }
-
         // 2. Not supported case: foo/bar path
         if (
-            ($spec['it'] === 'literal paths') ||
-            ($spec['it'] === 'this keyword nested inside path') ||
-            ($spec['it'] === 'this keyword nested inside helpers param') ||
-            ($spec['it'] === 'parameter data throws when using complex scope references') ||
-            ($spec['it'] === 'block with complex lookup using nested context')
+            $spec['it'] === 'literal paths' ||
+            $spec['it'] === 'this keyword nested inside path' ||
+            $spec['it'] === 'this keyword nested inside helpers param' ||
+            $spec['it'] === 'parameter data throws when using complex scope references' ||
+            $spec['it'] === 'block with complex lookup using nested context'
         ) {
             $this->markTestIncomplete('Not supported case: foo/bar path');
         }
 
         // 4. block parameters, special case now do not support
-        if (
-            ($spec['it'] === 'should not take presedence over pathed values')
-        ) {
+        if ($spec['it'] === 'should not take presedence over pathed values') {
             $this->markTestIncomplete('Not supported case: just skip it');
         }
 
@@ -100,7 +92,7 @@ class HandlebarsSpecTest extends TestCase
             $spec['it'] === 'in string params mode,' ||
 
             // Decorators are deprecated: https://github.com/wycats/handlebars.js/blob/master/docs/decorators-api.md
-            ($spec['description'] === 'blocks - decorators') ||
+            $spec['description'] === 'blocks - decorators' ||
 
             // strict mode
             (
@@ -117,14 +109,11 @@ class HandlebarsSpecTest extends TestCase
             $this->markTestIncomplete('Not supported case: just skip it');
         }
 
-        // TODO: require fix
         if (
             // inline partials
             str_starts_with($spec['it'], 'should render nested inline partials') ||
             $spec['it'] === 'should define inline partials for block' && isset($spec['number']) ||
-
-               // SafeString
-               ($spec['it'] === 'rendering function partial in vm mode') ||
+            $spec['it'] === 'rendering function partial in vm mode' ||
 
             // todo: fix
             $spec['it'] === 'each with block params' ||
@@ -132,7 +121,11 @@ class HandlebarsSpecTest extends TestCase
             $spec['it'] === 'lambdas are resolved by blockHelperMissing, not handlebars proper' ||
             $spec['description'] === 'helpers - the lookupProperty-option' ||
 
-               // need confirm
+            // need confirm
+            $spec['it'] === 'GH-1341: 4.0.7 release breaks {{#if @partial-block}} usage' ||
+            $spec['it'] === 'GH-1186: Support block params for existing programs' ||
+            $spec['it'] === 'GH-1135 : Context handling within each iteration' ||
+            $spec['it'] === "bug reported by @fat where lambdas weren't being properly resolved" ||
             $spec['it'] === 'if with function argument' ||
             $spec['it'] === 'with with function argument' ||
             $spec['it'] === 'each with function argument' && !isset($spec['number']) ||
@@ -146,7 +139,7 @@ class HandlebarsSpecTest extends TestCase
 
         // FIX SPEC
         if ($spec['it'] === 'should take presednece over parent block params') {
-            $spec['helpers']['goodbyes']['php'] = 'function($options) { static $value; if($value === null) { $value = 1; } return $options->fn(array("value" => "bar"), array("blockParams" => ($options->blockParams === 1) ? array($value++, $value++) : null));}';
+            $spec['helpers']['goodbyes']['php'] = 'function($options) { static $value; if ($value === null) { $value = 1; } return $options->fn(["value" => "bar"], ["blockParams" => $options->blockParams === 1 ? [$value++, $value++] : null]);}';
         }
         if ($spec['it'] === 'depthed block functions without context argument' && $spec['expected'] === 'inner') {
             $spec['expected'] = '';
@@ -269,7 +262,7 @@ class HandlebarsSpecTest extends TestCase
 
         // stringParams and trackIds mode were removed from Handlebars in 2015:
         // https://github.com/handlebars-lang/handlebars.js/pull/1148
-        $skip = ['parser', 'regressions', 'tokenizer', 'string-params', 'track-ids'];
+        $skip = ['parser', 'tokenizer', 'string-params', 'track-ids'];
 
         foreach (glob('vendor/jbboehr/handlebars-spec/spec/*.json') as $file) {
             $name = basename($file, '.json');
