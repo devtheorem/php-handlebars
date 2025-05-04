@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+## [0.9.7] Resolvers - 2025-05-04
+### Added
+- `helperResolver` and `partialResolver` compile options for dynamic handling of partials and helpers.
+
+
 ## [0.9.6] Partial Indentation - 2025-04-20
 ### Fixed
 - Indentation of nested partials (https://github.com/ProAI/laravel-handlebars/issues/33).
@@ -67,6 +72,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[0.9.7]: https://github.com/devtheorem/php-handlebars/compare/v0.9.6...v0.9.7
 [0.9.6]: https://github.com/devtheorem/php-handlebars/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/devtheorem/php-handlebars/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/devtheorem/php-handlebars/compare/v0.9.3...v0.9.4
