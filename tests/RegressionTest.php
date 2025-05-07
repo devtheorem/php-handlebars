@@ -1367,6 +1367,27 @@ class RegressionTest extends TestCase
             ],
 
             [
+                'id' => 313,
+                'template' => <<<_tpl
+                    {{#if conditionA}}
+                      {{#if conditionA1}}
+                        Do something then do more stuff conditionally
+                        {{#if conditionA1.x}}
+                          Do something here
+                        {{else if conditionA1.y}}
+                          Do something else here
+                        {{/if}}
+                      {{/if}}
+                    {{else if conditionB}}
+                      Do something else
+                    {{else}}
+                      Finally, do this last thing if all else fails
+                    {{/if}}
+                    _tpl,
+                'expected' => "  Finally, do this last thing if all else fails\n",
+            ],
+
+            [
                 'id' => 315,
                 'template' => '{{#each foo}}#{{@key}}({{@index}})={{.}}-{{moo}}-{{@irr}}{{/each}}',
                 'options' => new Options(
