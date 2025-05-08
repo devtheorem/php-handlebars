@@ -1345,6 +1345,17 @@ class RegressionTest extends TestCase
                 ),
                 'expected' => '&quot;&quot;&quot; &quot;&quot;&quot;',
             ],
+            [
+                'template' => "{{test '\'\'\'' prop='\'\'\''}}",
+                'options' => new Options(
+                    helpers: [
+                        'test' => function ($arg1, HelperOptions $options) {
+                            return "{$arg1} {$options->hash['prop']}";
+                        },
+                    ],
+                ),
+                'expected' => '&#x27;&#x27;&#x27; &#x27;&#x27;&#x27;',
+            ],
 
             [
                 'id' => 302,
