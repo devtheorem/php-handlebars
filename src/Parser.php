@@ -76,7 +76,8 @@ final class Parser
 
         // handle double-quoted string
         if (preg_match('/^"(.*)"$/', $v, $matched)) {
-            return static::getLiteral(preg_replace('/([^\\\\])\\\\\\\\"/', '$1"', preg_replace('/^\\\\\\\\"/', '"', $matched[1])), $asis, true);
+            $literal = str_replace('\\\\"', '"', $matched[1]);
+            return static::getLiteral($literal, $asis, true);
         }
 
         // handle single quoted string
@@ -150,18 +151,16 @@ final class Parser
     public static function parse(array $token, Context $context): array
     {
         $vars = static::analyze($token[Token::POS_INNERTAG], $context);
-        if ($token[Token::POS_OP] === '>') {
-            $fn = static::getPartialName($vars);
-        } elseif ($token[Token::POS_OP] === '#*') {
-            $fn = static::getPartialName($vars, 1);
-        }
-
         $avars = static::advancedVariable($vars, $context, Token::toString($token));
 
-        if (isset($fn)) {
-            if ($token[Token::POS_OP] === '>') {
+        if ($token[Token::POS_OP] === '>') {
+            $fn = static::getPartialName($vars);
+            if ($fn !== null) {
                 $avars[0] = $fn;
-            } elseif ($token[Token::POS_OP] === '#*') {
+            }
+        } elseif ($token[Token::POS_OP] === '#*') {
+            $fn = static::getPartialName($vars, 1);
+            if ($fn !== null) {
                 $avars[1] = $fn;
             }
         }
