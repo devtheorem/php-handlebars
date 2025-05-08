@@ -5,6 +5,7 @@ use DevTheorem\Handlebars\{Handlebars, HelperOptions, Options};
 require 'vendor/autoload.php';
 
 $templateString = '{{test "\"\"\"" prop="\"\"\""}}';
+$templateString = "{{test '\'\'\'' prop='\'\'\''}}";
 
 $template = Handlebars::compile($templateString, new Options(
     helpers: [

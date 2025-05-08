@@ -84,6 +84,11 @@ final class Parser
         if (preg_match('/^\\\\\'(.*)\\\\\'$/', $v, $matched)) {
             return static::getLiteral($matched[1], $asis, true);
         }
+        /*if (preg_match("/^'(.*)'$/", $v, $matched)) {
+            $name = preg_replace("/^\\\\\\\\'/", "'", $matched[1]);
+            $name = preg_replace("/([^\\\\])\\\\\\\\'/", "$1'", $name);
+            return static::getLiteral($name, $asis, true);
+        }*/
 
         // handle bool, null and undefined
         if (preg_match('/^(true|false|null|undefined)$/', $v)) {
@@ -251,6 +256,7 @@ final class Parser
             }
 
             if (!preg_match("/^(\"|\\\\')(.*)(\"|\\\\')$/", $var)) {
+            //if (!preg_match("/^([\"'])(.*)([\"'])$/", $var)) {
                 // foo]  Rule 1: no starting [ or [ not start from head
                 if (preg_match('/^[^\\[.]+[\\[\\]]/', $var)
                     // [bar  Rule 2: no ending ] or ] not in the end
