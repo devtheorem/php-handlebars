@@ -71,7 +71,7 @@ class Partial
         $func = static::compile($context, $context->usedPartial[$name], $name);
 
         if (!isset($context->partialCode[$name]) && $func) {
-            $context->partialCode[$name] = "'$name' => $func";
+            $context->partialCode[$name] = Expression::quoteString($name) . " => $func";
         }
 
         return $func;

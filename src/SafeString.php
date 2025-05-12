@@ -39,6 +39,6 @@ class SafeString implements \Stringable
      */
     public static function escapeTemplate(string $template): string
     {
-        return addcslashes(addcslashes($template, '\\'), "'");
+        return addcslashes($template, '\\');
     }
 }

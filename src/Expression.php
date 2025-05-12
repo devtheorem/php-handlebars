@@ -14,7 +14,7 @@ final class Expression
      */
     public static function listString(array $list): string
     {
-        return implode(',', array_map(static fn($v) => "'$v'", $list));
+        return '[' . implode(',', array_map(static fn($v) => "'$v'", $list)) . ']';
     }
 
     /**
@@ -24,7 +24,12 @@ final class Expression
      */
     public static function arrayString(array $list): string
     {
-        return implode('', array_map(static fn($v) => "['$v']", $list));
+        return implode('', array_map(static fn($v) => "[" . self::quoteString($v) . "]", $list));
+    }
+
+    public static function quoteString(string $string): string
+    {
+        return "'" . addcslashes($string, "'") . "'";
     }
 
     /**

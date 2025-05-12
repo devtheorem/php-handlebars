@@ -9,9 +9,9 @@ class ExpressionTest extends TestCase
 {
     public function testListString(): void
     {
-        $this->assertSame('', Expression::listString([]));
-        $this->assertSame("'a'", Expression::listString(['a']));
-        $this->assertSame("'a','b','c'", Expression::listString(['a', 'b', 'c']));
+        $this->assertSame('[]', Expression::listString([]));
+        $this->assertSame("['a']", Expression::listString(['a']));
+        $this->assertSame("['a','b','c']", Expression::listString(['a', 'b', 'c']));
     }
 
     public function testArrayString(): void

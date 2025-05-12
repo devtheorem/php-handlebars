@@ -55,7 +55,7 @@ final class Parser
      */
     protected static function getLiteral(string $name, bool $asis, bool $quote = false): array
     {
-        return $asis ? [$name] : [static::LITERAL, $quote ? "'$name'" : $name];
+        return $asis ? [$name] : [static::LITERAL, $quote ? Expression::quoteString($name) : $name];
     }
 
     /**
@@ -81,8 +81,9 @@ final class Parser
         }
 
         // handle single quoted string
-        if (preg_match('/^\\\\\'(.*)\\\\\'$/', $v, $matched)) {
-            return static::getLiteral($matched[1], $asis, true);
+        if (preg_match("/^'(.*)'$/", $v, $matched)) {
+            $literal = str_replace("\\\\'", "'", $matched[1]);
+            return static::getLiteral($literal, $asis, true);
         }
 
         // handle bool, null and undefined
@@ -250,7 +251,7 @@ final class Parser
                 }
             }
 
-            if (!preg_match("/^(\"|\\\\')(.*)(\"|\\\\')$/", $var)) {
+            if (!preg_match("/^([\"'])(.*)([\"'])$/", $var)) {
                 // foo]  Rule 1: no starting [ or [ not start from head
                 if (preg_match('/^[^\\[.]+[\\[\\]]/', $var)
                     // [bar  Rule 2: no ending ] or ] not in the end

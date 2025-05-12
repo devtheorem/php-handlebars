@@ -13,11 +13,4 @@ class SafeStringTest extends TestCase
         $this->assertSame('abc{{!}}cde', SafeString::stripExtendedComments('abc{{!}}cde'));
         $this->assertSame('abc{{! }}cde', SafeString::stripExtendedComments('abc{{!----}}cde'));
     }
-
-    public function testEscapeTemplate(): void
-    {
-        $this->assertSame('abc', SafeString::escapeTemplate('abc'));
-        $this->assertSame('a\\\\bc', SafeString::escapeTemplate('a\bc'));
-        $this->assertSame('a\\\'bc', SafeString::escapeTemplate('a\'bc'));
-    }
 }

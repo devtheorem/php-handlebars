@@ -713,16 +713,17 @@ class Validator
     /**
      * validate partial
      *
-     * @param array<bool|int|string|array<mixed>> $vars parsed arguments list
+     * @param array<array<mixed>> $vars parsed arguments list
      *
      * @return int|bool Return 1 or larger number for runtime partial, return true for other case
      */
-    protected static function partial(Context $context, array $vars)
+    protected static function partial(Context $context, array &$vars)
     {
         if (Parser::isSubExp($vars[0])) {
             return $context->usedDynPartial++;
         } else {
             if ($context->currentToken[Token::POS_OP] !== '#>') {
+                $vars[0][0] = preg_replace("/^'(.*)'$/", '$1', $vars[0][0]);
                 Partial::read($context, $vars[0][0]);
             }
         }

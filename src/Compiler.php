@@ -23,8 +23,6 @@ final class Compiler extends Validator
             return '';
         }
 
-        Token::setDelimiter($context);
-
         $context->compile = true;
 
         // Handle dynamic partials
@@ -36,7 +34,7 @@ final class Compiler extends Validator
             if (is_array($info)) {
                 $code .= "'" . static::compileToken($context, $info) . "'";
             } else {
-                $code .= $info;
+                $code .= addcslashes($info, "'");
             }
         }
 
@@ -120,7 +118,7 @@ final class Compiler extends Validator
             }
             $exps[] = $V[1];
         }
-        $bp = $blockParams ? (',[' . Expression::listString($blockParams) . ']') : '';
+        $bp = $blockParams ? ',' . Expression::listString($blockParams) : '';
         return ['[[' . implode(',', $vars[0]) . '],[' . implode(',', $vars[1]) . "]$bp]", $exps];
     }
 
@@ -253,7 +251,7 @@ final class Compiler extends Validator
      *
      * @param array<mixed> $vars parsed arguments list
      */
-    public static function partial(Context $context, array $vars): string
+    public static function partial(Context $context, array &$vars): string
     {
         Parser::getBlockParams($vars);
         $pid = Parser::getPartialBlock($vars);
@@ -266,7 +264,7 @@ final class Compiler extends Validator
         if (Parser::isSubExp($p)) {
             [$p] = static::compileSubExpression($context, $p[1]);
         } else {
-            $p = "'$p[0]'";
+            $p = Expression::quoteString($p[0]);
         }
         $sp = "(\$sp ?? '') . '{$context->partialIndent}'";
         return $context->separator .
@@ -400,7 +398,7 @@ final class Compiler extends Validator
         $be = '';
         if ($isEach) {
             $bp = Parser::getBlockParams($vars);
-            $bs = $bp ? ('array(' . Expression::listString($bp) . ')') : 'null';
+            $bs = $bp ? Expression::listString($bp) : 'null';
             $be = $bp ? (' as |' . implode(' ', $bp) . '|') : '';
             array_shift($vars);
         }
@@ -421,7 +419,7 @@ final class Compiler extends Validator
     {
         $v = isset($vars[1]) ? static::getVariableNameOrSubExpression($context, $vars[1]) : [null, []];
         $bp = Parser::getBlockParams($vars);
-        $bs = $bp ? ('[' . Expression::listString($bp) . ']') : 'null';
+        $bs = $bp ? Expression::listString($bp) : 'null';
         $be = $bp ? " as |$bp[0]|" : '';
         return $context->separator . static::getFuncName($context, 'wi', 'with ' . $v[1] . $be)
             . "\$cx, {$v[0]}, $bs, \$in, function(\$cx, \$in) {{$context->fStart}";
