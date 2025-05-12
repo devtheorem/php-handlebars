@@ -10,13 +10,9 @@ class SafeString implements \Stringable
 
     private string $string;
 
-    /**
-     * @param string $str input string
-     * @param bool|string $escape false to not escape, true to escape, 'encq' to escape as handlebars.js
-     */
-    public function __construct(string $str, bool|string $escape = false)
+    public function __construct(string $string)
     {
-        $this->string = $escape ? ($escape === 'encq' ? Encoder::encq($str) : Encoder::enc($str)) : $str;
+        $this->string = $string;
     }
 
     public function __toString()
@@ -32,11 +28,6 @@ class SafeString implements \Stringable
         return preg_replace(static::EXTENDED_COMMENT_SEARCH, '{{! }}', $template);
     }
 
-    /**
-     * Escape template
-     *
-     * @param string $template handlebars template string
-     */
     public static function escapeTemplate(string $template): string
     {
         return addcslashes($template, '\\');

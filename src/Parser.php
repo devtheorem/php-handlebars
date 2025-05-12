@@ -113,7 +113,7 @@ final class Parser
         }
 
         if (str_contains($v, ']')) {
-            preg_match_all(Token::VARNAME_SEARCH, $v, $matchedAll);
+            preg_match_all('/(\\[[^\\]]+\\]|[^\\[\\]\\.]+)/', $v, $matchedAll);
         } else {
             preg_match_all('/([^.\\/]+)/', $v, $matchedAll);
         }
@@ -302,8 +302,8 @@ final class Parser
         }
 
         // begin with \' without ending '
-        if (preg_match('/^\'[^\']*$/', $string)) {
-            return ['\'', 0];
+        if (preg_match("/^'[^']*$/", $string)) {
+            return ["'", 0];
         }
 
         // '="' exists without ending '"'

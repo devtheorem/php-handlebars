@@ -7,9 +7,6 @@ namespace DevTheorem\Handlebars;
  */
 final class Token
 {
-    // RegExps
-    public const VARNAME_SEARCH = '/(\\[[^\\]]+\\]|[^\\[\\]\\.]+)/';
-
     // Positions of matched token
     public const POS_LOTHER = 1;
     public const POS_LSPACE = 2;
