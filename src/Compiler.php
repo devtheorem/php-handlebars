@@ -15,6 +15,7 @@ final class Compiler extends Validator
      */
     public static function compileTemplate(Context $context, string $template): string
     {
+        $template = addcslashes($template, '\\');
         array_unshift($context->parsed, []);
         Validator::verify($context, $template);
         static::$lastParsed = $context->parsed;

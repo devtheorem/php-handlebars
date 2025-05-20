@@ -32,7 +32,7 @@ class Partial
         $cnt = static::resolve($context, $name);
 
         if ($cnt !== null) {
-            $context->usedPartial[$name] = SafeString::escapeTemplate($cnt);
+            $context->usedPartial[$name] = $cnt;
             static::compileDynamic($context, $name);
             return;
         }

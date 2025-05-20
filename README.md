@@ -103,6 +103,15 @@ echo $template(['my_var' => 1]); // Not equal
 echo $template(['my_var' => null]); // Not equal
 ```
 
+## String Escaping
+
+If a custom helper is executed in a `{{ }}` expression, the return value will be HTML escaped.
+When a helper is executed in a `{{{ }}}` expression, the original return value will be output directly.
+
+Helpers may return a `DevTheorem\Handlebars\SafeString` instance to prevent escaping the return value.
+When constructing the string that will be marked as safe, any external content should be properly escaped
+using the `Handlebars::escapeExpression()` method to avoid potential security concerns.
+
 ## Unsupported Features
 
 * `{{foo/bar}}` style variables (deprecated in official Handlebars.js). Instead use: `{{foo.bar}}`.

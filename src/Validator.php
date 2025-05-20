@@ -7,12 +7,22 @@ namespace DevTheorem\Handlebars;
  */
 class Validator
 {
+    public const EXTENDED_COMMENT_SEARCH = '/{{!--.*?--}}/s';
+
+    /**
+     * Strip extended comments {{!-- .... --}}
+     */
+    public static function stripExtendedComments(string $template): string
+    {
+        return preg_replace(static::EXTENDED_COMMENT_SEARCH, '{{! }}', $template);
+    }
+
     /**
      * Verify template
      */
     public static function verify(Context $context, string $template): void
     {
-        $template = SafeString::stripExtendedComments($template);
+        $template = static::stripExtendedComments($template);
         $context->level = 0;
         Token::setDelimiter($context);
 

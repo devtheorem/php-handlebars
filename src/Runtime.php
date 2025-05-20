@@ -60,11 +60,9 @@ final class Runtime
     }
 
     /**
-     * For {{var}} , do html encode just like handlebars.js .
+     * HTML encode {{var}} just like handlebars.js
      *
      * @param array<array<mixed>|string|int>|string|SafeString|int|null $var value to be htmlencoded
-     *
-     * @return string The htmlencoded value of the specified variable
      */
     public static function encq($var): string
     {
@@ -72,7 +70,7 @@ final class Runtime
             return (string) $var;
         }
 
-        return Encoder::encq($var);
+        return Handlebars::escapeExpression(static::raw($var));
     }
 
     /**

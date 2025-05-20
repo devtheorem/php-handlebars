@@ -25,7 +25,7 @@ final class Handlebars
         $context = new Context($options);
         static::handleError($context);
 
-        $code = Compiler::compileTemplate($context, SafeString::escapeTemplate($template));
+        $code = Compiler::compileTemplate($context, $template);
         static::$lastParsed = Compiler::$lastParsed;
         static::handleError($context);
 
@@ -39,6 +39,19 @@ final class Handlebars
     public static function template(string $templateSpec): \Closure
     {
         return eval($templateSpec);
+    }
+
+    /**
+     * HTML escapes the passed string, making it safe for rendering as text within HTML content.
+     * The output of all expressions except for triple-braced expressions are passed through this method.
+     * Helpers should also use this method when returning HTML content via a SafeString instance,
+     * to prevent possible code injection.
+     */
+    public static function escapeExpression(string $string): string
+    {
+        $search = ['&', '<', '>', '"', "'", '`', '='];
+        $replace = ['&amp;', '&lt;', '&gt;', '&quot;', '&#x27;', '&#x60;', '&#x3D;'];
+        return str_replace($search, $replace, $string);
     }
 
     /**

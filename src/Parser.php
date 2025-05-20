@@ -7,6 +7,8 @@ namespace DevTheorem\Handlebars;
  */
 final class Parser
 {
+    public const IS_SUBEXP_SEARCH = '/^\(.+\)$/s';
+
     // Compile time error handling flags
     public const BLOCKPARAM = 9999;
     public const PARTIALBLOCK = 9998;
@@ -179,7 +181,7 @@ final class Parser
      */
     public static function getPartialName(array $vars, int $pos = 0): ?array
     {
-        if (!isset($vars[$pos]) || preg_match(SafeString::IS_SUBEXP_SEARCH, $vars[$pos])) {
+        if (!isset($vars[$pos]) || preg_match(static::IS_SUBEXP_SEARCH, $vars[$pos])) {
             return null;
         }
         assert(is_string($vars[$pos]));
@@ -229,14 +231,14 @@ final class Parser
         $i = 0;
         foreach ($vars as $idx => $var) {
             // handle (...)
-            if (preg_match(SafeString::IS_SUBEXP_SEARCH, $var)) {
+            if (preg_match(static::IS_SUBEXP_SEARCH, $var)) {
                 $ret[$i] = static::subexpression($var, $context);
                 $i++;
                 continue;
             }
 
             // handle |...|
-            if (preg_match(SafeString::IS_BLOCKPARAM_SEARCH, $var, $matched)) {
+            if (preg_match('/^ +\|(.+)\|$/s', $var, $matched)) {
                 $ret[static::BLOCKPARAM] = preg_split('/\s+/', trim($matched[1]));
                 continue;
             }
@@ -245,7 +247,7 @@ final class Parser
                 $idx = $m[3] ?: $m[4];
                 $var = $m[5];
                 // handle foo=(...)
-                if (preg_match(SafeString::IS_SUBEXP_SEARCH, $var)) {
+                if (preg_match(static::IS_SUBEXP_SEARCH, $var)) {
                     $ret[$idx] = static::subexpression($var, $context);
                     continue;
                 }

@@ -2,12 +2,13 @@
 
 namespace DevTheorem\Handlebars;
 
+/**
+ * Can be returned from a custom helper to prevent an HTML string from being escaped
+ * when the template is rendered. When constructing, any external content should be
+ * properly escaped using Handlebars::escapeExpression() to avoid potential security concerns.
+ */
 class SafeString implements \Stringable
 {
-    public const EXTENDED_COMMENT_SEARCH = '/{{!--.*?--}}/s';
-    public const IS_SUBEXP_SEARCH = '/^\(.+\)$/s';
-    public const IS_BLOCKPARAM_SEARCH = '/^ +\|(.+)\|$/s';
-
     private string $string;
 
     public function __construct(string $string)
@@ -15,21 +16,8 @@ class SafeString implements \Stringable
         $this->string = $string;
     }
 
-    public function __toString()
+    public function __toString(): string
     {
         return $this->string;
-    }
-
-    /**
-     * Strip extended comments {{!-- .... --}}
-     */
-    public static function stripExtendedComments(string $template): string
-    {
-        return preg_replace(static::EXTENDED_COMMENT_SEARCH, '{{! }}', $template);
-    }
-
-    public static function escapeTemplate(string $template): string
-    {
-        return addcslashes($template, '\\');
     }
 }
