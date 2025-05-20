@@ -1,6 +1,21 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [0.9.8] String Escaping - 2025-05-20
+### Added
+- `Handlebars::escapeExpression()` method (equivalent to the `Handlebars.escapeExpression()` utility function in Handlebars.js).
+
+### Removed
+- Unnecessary `$escape` parameter on SafeString constructor.
+
+### Fixed
+- Nested else if validation (fixes https://github.com/zordius/lightncandy/issues/313).
+- Escaping multiple double quotes (fixes https://github.com/zordius/lightncandy/issues/298).
+- Single-quoted string parsing and compiling.
+
+
 ## [0.9.7] Resolvers - 2025-05-04
 ### Added
 - `helperResolver` and `partialResolver` compile options for dynamic handling of partials and helpers.
@@ -72,6 +87,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[0.9.8]: https://github.com/devtheorem/php-handlebars/compare/v0.9.7...v0.9.8
 [0.9.7]: https://github.com/devtheorem/php-handlebars/compare/v0.9.6...v0.9.7
 [0.9.6]: https://github.com/devtheorem/php-handlebars/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/devtheorem/php-handlebars/compare/v0.9.4...v0.9.5
