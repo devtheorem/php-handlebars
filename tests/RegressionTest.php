@@ -1123,9 +1123,8 @@ class RegressionTest extends TestCase
             ],
 
             [
-                'id' => 256,
-                'template' => '{{lookup . "foo"}}',
-                'data' => ['foo' => 'ok'],
+                'id' => 3,
+                'template' => 'ok{{{lookup . "missing"}}}',
                 'expected' => 'ok',
             ],
 
