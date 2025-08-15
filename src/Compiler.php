@@ -268,9 +268,9 @@ final class Compiler extends Validator
             $p = Expression::quoteString($p[0]);
         }
         $sp = "(\$sp ?? '') . '{$context->partialIndent}'";
-        return $context->separator .
-            static::getFuncName($context, 'p', $tag) . "\$cx, $p, $v[0], $pid, $sp)" .
-            $context->separator;
+        return $context->separator
+            . static::getFuncName($context, 'p', $tag) . "\$cx, $p, $v[0], $pid, $sp)"
+            . $context->separator;
     }
 
     /**
@@ -464,8 +464,8 @@ final class Compiler extends Validator
     {
         $v = $context->stack[count($context->stack) - 2];
 
-        if (($v === '[if]' && !isset($context->helpers['if'])) ||
-           ($v === '[unless]' && !isset($context->helpers['unless']))) {
+        if (($v === '[if]' && !isset($context->helpers['if']))
+           || ($v === '[unless]' && !isset($context->helpers['unless']))) {
             $context->stack[] = ':';
             return $context->cndElse;
         }

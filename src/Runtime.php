@@ -226,8 +226,8 @@ final class Runtime
      * For {{#with}} .
      *
      * @param array<array<mixed>|string|int>|string|int|bool|null $v value to be the new context
-     * @param array<array<mixed>|string|int>|\stdClass|null $in input data with current scope
      * @param array<string>|null $bp block parameters
+     * @param array<array<mixed>|string|int>|\stdClass|null $in input data with current scope
      * @param \Closure $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
      */
@@ -370,7 +370,7 @@ final class Runtime
             }
 
             $ex = false;
-            if (isset($data['blockParams']) && isset($vars[2])) {
+            if (isset($data['blockParams'], $vars[2])) {
                 $ex = array_combine($vars[2], array_slice($data['blockParams'], 0, count($vars[2])));
                 array_unshift($cx->blParam, $ex);
             } elseif (isset($cx->blParam[0])) {

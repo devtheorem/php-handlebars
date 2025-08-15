@@ -46,20 +46,20 @@ class HandlebarsSpecTest extends TestCase
 
         // Fix {} for these test cases
         if (
-            $spec['it'] === 'should override template partials' ||
-            $spec['it'] === 'should override partials down the entire stack' ||
-            $spec['it'] === 'should define inline partials for block'
+            $spec['it'] === 'should override template partials'
+            || $spec['it'] === 'should override partials down the entire stack'
+            || $spec['it'] === 'should define inline partials for block'
         ) {
             $spec['data'] = new \stdClass();
         }
 
         // 2. Not supported case: foo/bar path
         if (
-            $spec['it'] === 'literal paths' ||
-            $spec['it'] === 'this keyword nested inside path' ||
-            $spec['it'] === 'this keyword nested inside helpers param' ||
-            $spec['it'] === 'parameter data throws when using complex scope references' ||
-            $spec['it'] === 'block with complex lookup using nested context'
+            $spec['it'] === 'literal paths'
+            || $spec['it'] === 'this keyword nested inside path'
+            || $spec['it'] === 'this keyword nested inside helpers param'
+            || $spec['it'] === 'parameter data throws when using complex scope references'
+            || $spec['it'] === 'block with complex lookup using nested context'
         ) {
             $this->markTestIncomplete('Not supported case: foo/bar path');
         }
@@ -71,13 +71,13 @@ class HandlebarsSpecTest extends TestCase
 
         // 5. Not supported case: helperMissing and blockHelperMissing
         if (
-            ($spec['it'] === 'if a context is not found, helperMissing is used') ||
-            ($spec['it'] === 'if a context is not found, custom helperMissing is used') ||
-            ($spec['it'] === 'if a value is not found, custom helperMissing is used') ||
-            ($spec['it'] === 'should include in simple block calls') ||
-            ($spec['it'] === 'should include full id') ||
-            ($spec['it'] === 'should include full id if a hash is passed') ||
-            ($spec['it'] === 'lambdas resolved by blockHelperMissing are bound to the context')
+            ($spec['it'] === 'if a context is not found, helperMissing is used')
+            || ($spec['it'] === 'if a context is not found, custom helperMissing is used')
+            || ($spec['it'] === 'if a value is not found, custom helperMissing is used')
+            || ($spec['it'] === 'should include in simple block calls')
+            || ($spec['it'] === 'should include full id')
+            || ($spec['it'] === 'should include full id if a hash is passed')
+            || ($spec['it'] === 'lambdas resolved by blockHelperMissing are bound to the context')
         ) {
             $this->markTestIncomplete('Not supported case: just skip it');
         }
@@ -85,54 +85,54 @@ class HandlebarsSpecTest extends TestCase
         // 6. Not supported case: misc
         if (
             // compat mode
-            $spec['description'] === 'blocks - compat mode' ||
-            $spec['description'] === 'partials - compat mode' ||
+            $spec['description'] === 'blocks - compat mode'
+            || $spec['description'] === 'partials - compat mode'
 
             // stringParams
-            $spec['it'] === 'in string params mode,' ||
+            || $spec['it'] === 'in string params mode,'
 
             // Decorators are deprecated: https://github.com/wycats/handlebars.js/blob/master/docs/decorators-api.md
-            $spec['description'] === 'blocks - decorators' ||
+            || $spec['description'] === 'blocks - decorators'
 
             // strict mode
-            (
+            || (
                 $spec['description'] === 'strict - strict mode' && (
                     str_starts_with($spec['it'], 'should allow undefined ') || $spec['it'] === 'should handle explicit undefined'
                 )
-            ) ||
-            $spec['description'] === 'strict - assume objects' ||
+            )
+            || $spec['description'] === 'strict - assume objects'
 
             // lambda function in data
-            $spec['it'] === 'pathed functions with context argument' ||
-            $spec['it'] === 'Functions are bound to the context in knownHelpers only mode'
+            || $spec['it'] === 'pathed functions with context argument'
+            || $spec['it'] === 'Functions are bound to the context in knownHelpers only mode'
         ) {
             $this->markTestIncomplete('Not supported case: just skip it');
         }
 
         if (
             // inline partials
-            str_starts_with($spec['it'], 'should render nested inline partials') ||
-            $spec['it'] === 'should define inline partials for block' && isset($spec['number']) ||
-            $spec['it'] === 'rendering function partial in vm mode' ||
+            str_starts_with($spec['it'], 'should render nested inline partials')
+            || $spec['it'] === 'should define inline partials for block' && isset($spec['number'])
+            || $spec['it'] === 'rendering function partial in vm mode'
 
             // todo: fix
-            $spec['it'] === 'each with block params' ||
-            $spec['it'] === 'pathed lambas with parameters' ||
-            $spec['it'] === 'lambdas are resolved by blockHelperMissing, not handlebars proper' ||
-            $spec['description'] === 'helpers - the lookupProperty-option' ||
+            || $spec['it'] === 'each with block params'
+            || $spec['it'] === 'pathed lambas with parameters'
+            || $spec['it'] === 'lambdas are resolved by blockHelperMissing, not handlebars proper'
+            || $spec['description'] === 'helpers - the lookupProperty-option'
 
             // need confirm
-            $spec['it'] === 'GH-1341: 4.0.7 release breaks {{#if @partial-block}} usage' ||
-            $spec['it'] === 'GH-1186: Support block params for existing programs' ||
-            $spec['it'] === 'GH-1135 : Context handling within each iteration' ||
-            $spec['it'] === "bug reported by @fat where lambdas weren't being properly resolved" ||
-            $spec['it'] === 'if with function argument' ||
-            $spec['it'] === 'with with function argument' ||
-            $spec['it'] === 'each with function argument' && !isset($spec['number']) ||
-            $spec['it'] === 'data can be functions' ||
-            $spec['it'] === 'data can be functions with params' ||
-            $spec['it'] === 'depthed block functions with context argument' ||
-            $spec['it'] === 'depthed functions with context argument'
+            || $spec['it'] === 'GH-1341: 4.0.7 release breaks {{#if @partial-block}} usage'
+            || $spec['it'] === 'GH-1186: Support block params for existing programs'
+            || $spec['it'] === 'GH-1135 : Context handling within each iteration'
+            || $spec['it'] === "bug reported by @fat where lambdas weren't being properly resolved"
+            || $spec['it'] === 'if with function argument'
+            || $spec['it'] === 'with with function argument'
+            || $spec['it'] === 'each with function argument' && !isset($spec['number'])
+            || $spec['it'] === 'data can be functions'
+            || $spec['it'] === 'data can be functions with params'
+            || $spec['it'] === 'depthed block functions with context argument'
+            || $spec['it'] === 'depthed functions with context argument'
         ) {
             $this->markTestIncomplete('TODO: require fix');
         }
@@ -294,7 +294,7 @@ class HandlebarsSpecTest extends TestCase
     {
         if (isset($spec['data']) && is_array($spec['data'])) {
             foreach ($spec['data'] as $key => $value) {
-                if (is_array($value) && isset($value['!code']) && isset($value['php'])) {
+                if (is_array($value) && isset($value['!code'], $value['php'])) {
                     $spec['helpers'][$key] = $value;
                     unset($spec['data'][$key]);
                 }
