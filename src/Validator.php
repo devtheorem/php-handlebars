@@ -435,7 +435,9 @@ class Validator
                 if (isset($elseChain[0])) {
                     // we need to repeat a level due to else chains: {{else if}}
                     $context->level++;
-                    $context->currentToken[Token::POS_RSPACE] = $context->currentToken[Token::POS_BACKFILL] = '{{/' . implode('}}{{/', $elseChain) . '}}' . Token::toString($context->currentToken) . $context->currentToken[Token::POS_RSPACE];
+                    $context->currentToken[Token::POS_RSPACE] = $context->currentToken[Token::POS_BACKFILL]
+                        = '{{/' . implode('}}{{/', $elseChain) . '}}'
+                        . Token::toString($context->currentToken) . $context->currentToken[Token::POS_RSPACE];
                     return Token::POS_BACKFILL;
                 }
                 // no break
@@ -444,6 +446,7 @@ class Validator
                 [$levels, $spvar, $var] = Expression::analyze($vars[0]);
                 $v = Expression::toString($levels, $spvar, $var);
                 if ($pop2 !== $v) {
+                    //echo "Unexpect token: $v  $pop2 \n";
                     $context->error[] = 'Unexpect token ' . Token::toString($context->currentToken) . " ! Previous token {{{$pop}$pop2}} is not closed";
                     return false;
                 }
