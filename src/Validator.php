@@ -444,6 +444,7 @@ class Validator
                 [$levels, $spvar, $var] = Expression::analyze($vars[0]);
                 $v = Expression::toString($levels, $spvar, $var);
                 if ($pop2 !== $v) {
+                    //echo "Unexpect token: $v  $pop2 \n";
                     $context->error[] = 'Unexpect token ' . Token::toString($context->currentToken) . " ! Previous token {{{$pop}$pop2}} is not closed";
                     return false;
                 }

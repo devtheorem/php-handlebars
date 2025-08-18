@@ -1,0 +1,15 @@
+{{#ifEquals @root.item "foo"}}
+    phooey
+{{else ifEquals @root.item "bar"}}
+    barry
+{{else}}
+    {{#if @root.item}}
+        {{#ifEquals @root.item "fizz"}}
+            fizzy
+        {{else ifEquals @root.item "buzz"}}
+            buzzy
+        {{else}}
+            no matches
+        {{/ifEquals}}
+    {{/if}}
+{{/ifEquals}}
