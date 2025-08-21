@@ -164,6 +164,7 @@ Go https://handlebarsjs.com/ to see more details about each feature.
 * `{{@root}}` : references to root context.
 * `{{@first}}` : true when looping at first item.
 * `{{@last}}` : true when looping at last item.
+* `{{@odd}}` : true when looping at odd item.
 * `{{@root.path.to.value}}` : references to root context then follow the path.
 * `{{@../index}}` : access to parent loop index.
 * `{{@../key}}` : access to parent loop key.

@@ -167,6 +167,7 @@ final class Runtime
             foreach ($v as $index => $raw) {
                 $cx->spVars['first'] = ($i === 0);
                 $cx->spVars['last'] = ($i == $last);
+                $cx->spVars['odd'] = ($i & 1) ? true : false;
                 $cx->spVars['key'] = $index;
                 $cx->spVars['index'] = $isSparceArray ? $index : $i;
                 $i++;
@@ -326,8 +327,10 @@ final class Runtime
         $options = new HelperOptions(
             name: $ch,
             hash: $vars[1],
-            fn: function () { return ''; },
-            inverse: function () { return ''; },
+            fn: function () {
+                return ''; },
+            inverse: function () {
+                return ''; },
             blockParams: 0,
             scope: $_this,
             data: $cx->spVars,
