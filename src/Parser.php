@@ -115,7 +115,7 @@ final class Parser
         }
 
         if (str_contains($v, ']')) {
-            preg_match_all('/(\\[[^\\]]+\\]|[^\\[\\]\\.]+)/', $v, $matchedAll);
+            preg_match_all('/(\[[^]]+]|[^\[\].]+)/', $v, $matchedAll);
         } else {
             preg_match_all('/([^.\\/]+)/', $v, $matchedAll);
         }
@@ -185,7 +185,7 @@ final class Parser
             return null;
         }
         assert(is_string($vars[$pos]));
-        return [preg_replace('/^("(.+)")|(\\[(.+)\\])|(\\\\\'(.+)\\\\\')$/', '$2$4$6', $vars[$pos])];
+        return [preg_replace('/^("(.+)")|(\\[(.+)])|(\\\\\'(.+)\\\\\')$/', '$2$4$6', $vars[$pos])];
     }
 
     /**
@@ -243,7 +243,7 @@ final class Parser
                 continue;
             }
 
-            if (preg_match('/^((\\[([^\\]]+)\\])|([^=^\\["\']+))=(.+)$/s', $var, $m)) {
+            if (preg_match('/^((\[([^]]+)])|([^=^\["\']+))=(.+)$/s', $var, $m)) {
                 $idx = $m[3] ?: $m[4];
                 $var = $m[5];
                 // handle foo=(...)
@@ -261,11 +261,11 @@ final class Parser
                     // ]bar. Rule 3: middle ] not before .
                     || preg_match('/][^\\[.\\]]+\\./', $var)
                     // .foo[ Rule 4: middle [ not after .
-                    || preg_match('/\\.[^\\[.\\]]+\\[/', preg_replace('/^(..\\/)+/', '', preg_replace('/\\[[^\\]]+\\]/', '[XXX]', $var)))
+                    || preg_match('/\\.[^\\[.\\]]+\\[/', preg_replace('/^(..\\/)+/', '', preg_replace('/\[[^]]+]/', '[XXX]', $var)))
                 ) {
                     $context->error[] = "Wrong variable naming as '$var' in $token !";
                 } else {
-                    $name = preg_replace('/(\\[.+?\\])/', '', $var);
+                    $name = preg_replace('/(\[.+?])/', '', $var);
                     // Scan for invalid characters which not be protected by [ ]
                     // now make ( and ) pass, later fix
                     if (preg_match('/[!"#%\'*+,;<=>{|}~]/', $name)) {
