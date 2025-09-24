@@ -493,7 +493,7 @@ final class Compiler extends Validator
      * @param bool $raw is this {{{ token or not
      * @param bool $nosep true to compile without separator
      */
-    protected static function compileLookup(Context $context, array &$vars, bool $raw, bool $nosep = false): string
+    protected static function compileLookup(Context $context, array $vars, bool $raw, bool $nosep = false): string
     {
         $v2 = static::getVariableName($context, $vars[2]);
         $v = static::getVariableName($context, $vars[1], $v2);
