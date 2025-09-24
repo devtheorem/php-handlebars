@@ -98,6 +98,10 @@ class Partial
             $code = preg_replace('/^/m', "'{$context->separator}\$sp{$context->separator}'", $code);
             // remove extra spaces before partial
             $code = preg_replace('/^\'\\.\\$sp\\.\'(\'\\.LR::p\\()/m', '$1', $code, 1);
+            // remove extra spaces before section
+            $code = preg_replace('/^\'\\.\\$sp\\.\'(\'\\.LR::sec\\()/m', '$1', $code, 1);
+            // remove extra spaces before blank lines
+            $code = preg_replace('/^\'\\.\\$sp\\.\'(\';}\\))/m', '$1', $code, 1);
             // add spaces after partial
             $code = preg_replace('/^(\'\\.LR::p\\(.+\\)\\.)(\'.+)/m', '$1\$sp.$2', $code, 1);
         }

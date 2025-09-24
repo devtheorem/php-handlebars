@@ -406,7 +406,7 @@ final class Compiler extends Validator
         $v = static::getVariableNameOrSubExpression($context, $vars[0]);
         $each = $isEach ? 'true' : 'false';
         return $context->separator . static::getFuncName($context, 'sec', ($isEach ? 'each ' : '') . $v[1] . $be)
-            . "\$cx, {$v[0]}, $bs, \$in, $each, function(\$cx, \$in) {{$context->fStart}";
+            . "\$cx, {$v[0]}, $bs, \$in, $each, function(\$cx, \$in) use (&\$sp) {{$context->fStart}\$sp.";
     }
 
     /**

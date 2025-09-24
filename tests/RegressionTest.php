@@ -96,6 +96,16 @@ class RegressionTest extends TestCase
 
         $issues = [
             [
+                'id' => 7,
+                'template' => "<p>\n  {{> list}}\n</p>",
+                'data' => ['items' => ['Hello', 'World']],
+                'options' => new Options(
+                    partials: ['list' => "{{#each items}}{{this}}\n{{/each}}"],
+                ),
+                'expected' => "<p>\n  Hello\n  World\n</p>",
+            ],
+
+            [
                 'id' => 39,
                 'template' => '{{{tt}}}',
                 'data' => ['tt' => 'bla bla bla'],
