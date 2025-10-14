@@ -10,17 +10,19 @@ class RuntimeTest extends TestCase
 {
     public function testIfVar(): void
     {
-        $this->assertFalse(Runtime::ifvar(null, false));
-        $this->assertFalse(Runtime::ifvar(0, false));
+        $this->assertFalse(Runtime::ifvar(null));
+        $this->assertFalse(Runtime::ifvar(0));
         $this->assertTrue(Runtime::ifvar(0, true));
-        $this->assertFalse(Runtime::ifvar(false, false));
-        $this->assertTrue(Runtime::ifvar(true, false));
-        $this->assertTrue(Runtime::ifvar(1, false));
-        $this->assertFalse(Runtime::ifvar('', false));
-        $this->assertTrue(Runtime::ifvar('0', false));
-        $this->assertFalse(Runtime::ifvar([], false));
-        $this->assertTrue(Runtime::ifvar([''], false));
-        $this->assertTrue(Runtime::ifvar([0], false));
+        $this->assertFalse(Runtime::ifvar(false));
+        $this->assertTrue(Runtime::ifvar(true));
+        $this->assertTrue(Runtime::ifvar(1));
+        $this->assertFalse(Runtime::ifvar(''));
+        $this->assertTrue(Runtime::ifvar('0'));
+        $this->assertFalse(Runtime::ifvar([]));
+        $this->assertTrue(Runtime::ifvar(['']));
+        $this->assertTrue(Runtime::ifvar([0]));
+        $this->assertFalse(Runtime::ifvar(self::createStringable('')));
+        $this->assertTrue(Runtime::ifvar(self::createStringable('0')));
     }
 
     public function testIsec(): void
@@ -40,5 +42,17 @@ class RuntimeTest extends TestCase
         $this->assertSame('', Runtime::wi($cx, null, null, null, function () {return 'A'; }));
         $this->assertSame('{"a":"b"}', Runtime::wi($cx, ['a' => 'b'], null, ['a' => 'c'], function ($c, $i) {return json_encode($i); }));
         $this->assertSame('-b=', Runtime::wi($cx, 'b', null, ['a' => 'b'], function ($c, $i) {return "-$i="; }));
+    }
+
+    private static function createStringable(string $value): \Stringable
+    {
+        return new class ($value) implements \Stringable {
+            public function __construct(private string $value) {}
+
+            public function __toString(): string
+            {
+                return $this->value;
+            }
+        };
     }
 }
