@@ -42,7 +42,7 @@ final class Runtime
      *
      * @return bool Return true when the value is not null nor false.
      */
-    public static function ifvar(mixed $v, bool $zero): bool
+    public static function ifvar(mixed $v, bool $zero = false): bool
     {
         return $v !== null
             && $v !== false

@@ -10,19 +10,19 @@ class RuntimeTest extends TestCase
 {
     public function testIfVar(): void
     {
-        $this->assertFalse(Runtime::ifvar(null, false));
-        $this->assertFalse(Runtime::ifvar(0, false));
+        $this->assertFalse(Runtime::ifvar(null));
+        $this->assertFalse(Runtime::ifvar(0));
         $this->assertTrue(Runtime::ifvar(0, true));
-        $this->assertFalse(Runtime::ifvar(false, false));
-        $this->assertTrue(Runtime::ifvar(true, false));
-        $this->assertTrue(Runtime::ifvar(1, false));
-        $this->assertFalse(Runtime::ifvar('', false));
-        $this->assertTrue(Runtime::ifvar('0', false));
-        $this->assertFalse(Runtime::ifvar([], false));
-        $this->assertTrue(Runtime::ifvar([''], false));
-        $this->assertTrue(Runtime::ifvar([0], false));
-        $this->assertFalse(Runtime::ifvar(self::createStringable(''), false));
-        $this->assertTrue(Runtime::ifvar(self::createStringable('0'), false));
+        $this->assertFalse(Runtime::ifvar(false));
+        $this->assertTrue(Runtime::ifvar(true));
+        $this->assertTrue(Runtime::ifvar(1));
+        $this->assertFalse(Runtime::ifvar(''));
+        $this->assertTrue(Runtime::ifvar('0'));
+        $this->assertFalse(Runtime::ifvar([]));
+        $this->assertTrue(Runtime::ifvar(['']));
+        $this->assertTrue(Runtime::ifvar([0]));
+        $this->assertFalse(Runtime::ifvar(self::createStringable('')));
+        $this->assertTrue(Runtime::ifvar(self::createStringable('0')));
     }
 
     public function testIsec(): void
