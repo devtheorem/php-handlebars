@@ -37,14 +37,19 @@ final class Runtime
     /**
      * For {{#if}} and {{#unless}}.
      *
-     * @param array<array<mixed>|string|int>|string|int|float|bool|null $v value to be tested
+     * @param array<array<mixed>|string|int>|string|\Stringable|int|float|bool|null $v value to be tested
      * @param bool $zero include zero as true
      *
      * @return bool Return true when the value is not null nor false.
      */
     public static function ifvar(mixed $v, bool $zero): bool
     {
-        return $v !== null && $v !== false && ($zero || ($v !== 0 && $v !== 0.0)) && $v !== '' && (!is_array($v) || count($v) > 0);
+        return $v !== null 
+            && $v !== false 
+            && ($zero || ($v !== 0 && $v !== 0.0)) 
+            && $v !== '' 
+            && (!$v instanceof \Stringable || (string) $v !== '')
+            && (!is_array($v) || count($v) > 0);
     }
 
     /**
