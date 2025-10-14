@@ -6,9 +6,9 @@ use DevTheorem\Handlebars\Runtime;
 use DevTheorem\Handlebars\RuntimeContext;
 use PHPUnit\Framework\TestCase;
 
-class RuntimeTest extends TestCase 
+class RuntimeTest extends TestCase
 {
-    public function testIfVar(): void 
+    public function testIfVar(): void
     {
         $this->assertFalse(Runtime::ifvar(null, false));
         $this->assertFalse(Runtime::ifvar(0, false));
@@ -25,7 +25,7 @@ class RuntimeTest extends TestCase
         $this->assertTrue(Runtime::ifvar(self::createStringable('0'), false));
     }
 
-    public function testIsec(): void 
+    public function testIsec(): void
     {
         $this->assertTrue(Runtime::isec(null));
         $this->assertFalse(Runtime::isec(0));
@@ -35,7 +35,7 @@ class RuntimeTest extends TestCase
         $this->assertFalse(Runtime::isec(['1']));
     }
 
-    public function testWi(): void 
+    public function testWi(): void
     {
         $cx = new RuntimeContext();
         $this->assertSame('', Runtime::wi($cx, false, null, new \stdClass(), function () {return 'A'; }));
@@ -44,7 +44,7 @@ class RuntimeTest extends TestCase
         $this->assertSame('-b=', Runtime::wi($cx, 'b', null, ['a' => 'b'], function ($c, $i) {return "-$i="; }));
     }
 
-    private static function createStringable(string $value): \Stringable 
+    private static function createStringable(string $value): \Stringable
     {
         return new class ($value) implements \Stringable {
             public function __construct(private string $value) {}
