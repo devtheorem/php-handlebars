@@ -44,10 +44,10 @@ final class Runtime
      */
     public static function ifvar(mixed $v, bool $zero): bool
     {
-        return $v !== null 
-            && $v !== false 
-            && ($zero || ($v !== 0 && $v !== 0.0)) 
-            && $v !== '' 
+        return $v !== null
+            && $v !== false
+            && ($zero || ($v !== 0 && $v !== 0.0))
+            && $v !== ''
             && (!$v instanceof \Stringable || (string) $v !== '')
             && (!is_array($v) || count($v) > 0);
     }

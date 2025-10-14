@@ -48,7 +48,9 @@ class RuntimeTest extends TestCase
     {
         return new class ($value) implements \Stringable {
             public function __construct(private string $value) {}
-            public function __toString(): string {
+
+            public function __toString(): string
+            {
                 return $this->value;
             }
         };
