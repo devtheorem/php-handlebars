@@ -3,6 +3,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.9] Stringable Conditions - 2025-10-15
+### Added
+- Allow `Stringable` variables in `if` statements ([#8](https://github.com/devtheorem/php-handlebars/pull/8)).
+
+### Fixed
+- Raw lookup when key doesn't exist ([#3](https://github.com/devtheorem/php-handlebars/issues/3)).
+- Spacing and undefined variable for each block in partial ([#7](https://github.com/devtheorem/php-handlebars/issues/7)).
+
+
 ## [0.9.8] String Escaping - 2025-05-20
 ### Added
 - `Handlebars::escapeExpression()` method (equivalent to the `Handlebars.escapeExpression()` utility function in Handlebars.js).
@@ -87,6 +96,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[0.9.9]: https://github.com/devtheorem/php-handlebars/compare/v0.9.8...v0.9.9
 [0.9.8]: https://github.com/devtheorem/php-handlebars/compare/v0.9.7...v0.9.8
 [0.9.7]: https://github.com/devtheorem/php-handlebars/compare/v0.9.6...v0.9.7
 [0.9.6]: https://github.com/devtheorem/php-handlebars/compare/v0.9.5...v0.9.6
