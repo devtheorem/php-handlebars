@@ -32,7 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.9.6] Partial Indentation - 2025-04-20
 ### Fixed
-- Indentation of nested partials (https://github.com/ProAI/laravel-handlebars/issues/33).
+- Indentation of nested partials (fixes https://github.com/zordius/lightncandy/issues/349).
 - Parsing hash options containing line breaks (fixes https://github.com/zordius/lightncandy/issues/310).
 - Parameter type error in strict mode.
 - Parsing raw block helper params.
@@ -55,7 +55,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.9.2] Arrow Function Helpers - 2025-03-19
 ### Added
-- Support for arrow function helpers.
+- Support for arrow function helpers (fixes https://github.com/zordius/lightncandy/issues/366).
 
 ### Fixed
 - Parse error when using length with `@root` (from https://github.com/zordius/lightncandy/issues/370).
