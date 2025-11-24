@@ -41,7 +41,7 @@
     "scripts": {
         "analyze": "phpstan analyze",
         "cs-fix": "php-cs-fixer fix -v",
-        "test": "vendor/bin/phpunit"
+        "test": "vendor/bin/phpunit tests"
     },
     "config": {
         "sort-packages": true
