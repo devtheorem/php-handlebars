@@ -26,7 +26,7 @@ jobs:
         run: composer validate --strict
 
       - name: Install Composer dependencies
-        run: composer install --no-progress
+        uses: "ramsey/composer-install@v3"
 
       - name: Run PHPUnit
         run: composer test
