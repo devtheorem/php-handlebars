@@ -20,7 +20,7 @@
         }
     ],
     "require": {
-        "php": ">=8.2"
+        "php": "~8.2 || ~8.3 || ~8.4 || ~8.5"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.87",
@@ -41,7 +41,7 @@
     "scripts": {
         "analyze": "phpstan analyze",
         "cs-fix": "php-cs-fixer fix -v",
-        "test": "vendor/bin/phpunit tests"
+        "test": "vendor/bin/phpunit"
     },
     "config": {
         "sort-packages": true
