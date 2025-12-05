@@ -23,9 +23,9 @@
         "php": ">=8.2"
     },
     "require-dev": {
-        "friendsofphp/php-cs-fixer": "^3.87",
+        "friendsofphp/php-cs-fixer": "^3.92",
         "jbboehr/handlebars-spec": "dev-master",
-        "phpstan/phpstan": "^2.1.28",
+        "phpstan/phpstan": "^2.1.33",
         "phpunit/phpunit": "^11.5"
     },
     "autoload": {
@@ -44,6 +44,9 @@
         "test": "vendor/bin/phpunit tests"
     },
     "config": {
+        "platform": {
+            "php": "8.2.29"
+        },
         "sort-packages": true
     }
 }
