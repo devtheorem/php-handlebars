@@ -4,8 +4,64 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "eb306b8426ff900bdae49ababeba4924",
-    "packages": [],
+    "content-hash": "4a0ccd4e744dc8d51766bcb318811460",
+    "packages": [
+        {
+            "name": "devtheorem/php-handlebars-parser",
+            "version": "dev-master",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/devtheorem/php-handlebars-parser.git",
+                "reference": "97cf0d72be12802cf6983af4e37521304d3b13df"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/devtheorem/php-handlebars-parser/zipball/97cf0d72be12802cf6983af4e37521304d3b13df",
+                "reference": "97cf0d72be12802cf6983af4e37521304d3b13df",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.2"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^3.92",
+                "ircmaxell/php-yacc": "dev-master",
+                "jbboehr/handlebars-spec": "dev-master",
+                "phpstan/phpstan": "^2.1.33",
+                "phpunit/phpunit": "^11.5"
+            },
+            "default-branch": true,
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "DevTheorem\\HandlebarsParser\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Theodore Brown",
+                    "email": "theodorejb@outlook.com"
+                }
+            ],
+            "description": "Parse Handlebars templates to a spec-compliant AST with PHP.",
+            "keywords": [
+                "ast",
+                "handlebars",
+                "parse",
+                "php",
+                "template"
+            ],
+            "support": {
+                "issues": "https://github.com/devtheorem/php-handlebars-parser/issues",
+                "source": "https://github.com/devtheorem/php-handlebars-parser/tree/master"
+            },
+            "time": "2025-12-21T19:42:14+00:00"
+        }
+    ],
     "packages-dev": [
         {
             "name": "clue/ndjson-react",
@@ -4470,6 +4526,7 @@
     "aliases": [],
     "minimum-stability": "stable",
     "stability-flags": {
+        "devtheorem/php-handlebars-parser": 20,
         "jbboehr/handlebars-spec": 20
     },
     "prefer-stable": false,
