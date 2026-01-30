@@ -15,6 +15,27 @@ use PHPUnit\Framework\TestCase;
  */
 class RegressionTest extends TestCase
 {
+    public function testLog(): void
+    {
+        $template = Handlebars::compile('{{log foo}}');
+
+        date_default_timezone_set('GMT');
+        $tmpDir = sys_get_temp_dir();
+        $tmpFile = tempnam($tmpDir, 'terr_');
+        ini_set('error_log', $tmpFile);
+
+        $template(['foo' => 'OK!']);
+
+        $contents = array_map(function ($l) {
+            $l = rtrim($l);
+            preg_match('/GMT] (.+)/', $l, $m);
+            return $m[1] ?? $l;
+        }, file($tmpFile));
+
+        $this->assertEquals(['array (', "  0 => 'OK!',", ')'], $contents);
+        ini_restore('error_log');
+    }
+
     /**
      * @param RegIssue $issue
      */
@@ -22,11 +43,6 @@ class RegressionTest extends TestCase
     public function testIssues(array $issue): void
     {
         $templateSpec = Handlebars::precompile($issue['template'], $issue['options'] ?? new Options());
-        $context = Handlebars::getContext();
-        $parsed = print_r(Handlebars::$lastParsed, true);
-        if ($context->error) {
-            $this->fail('Compile failed due to: ' . print_r($context->error, true) . "\nPARSED: $parsed");
-        }
 
         try {
             $template = Handlebars::template($templateSpec);
@@ -95,6 +111,32 @@ class RegressionTest extends TestCase
         };
 
         $issues = [
+            [
+                'id' => 2,
+                'template' => <<<_hbs
+                    {{#ifEquals @root.item "foo"}}
+                        phooey
+                    {{else ifEquals @root.item "bar"}}
+                        barry
+                    {{else}}
+                        {{#if @root.item}}
+                            {{#ifEquals @root.item "fizz"}}
+                                fizzy
+                            {{else ifEquals @root.item "buzz"}}
+                                buzzy
+                            {{else}}
+                                no matches
+                            {{/ifEquals}}
+                        {{/if}}
+                    {{/ifEquals}}
+                    _hbs,
+                'options' => new Options(
+                    helpers: ['ifEquals' => $equals],
+                ),
+                'data' => ['item' => 'buzz'],
+                'expected' => "            buzzy\n",
+            ],
+
             [
                 'id' => 7,
                 'template' => "<p>\n  {{> list}}\n</p>",
@@ -707,7 +749,7 @@ class RegressionTest extends TestCase
                     (
                         [text] => >123
                     )
-                    
+
                     VAREND,
             ],
 
@@ -1381,7 +1423,7 @@ class RegressionTest extends TestCase
             [
                 'id' => 310,
                 'template' => <<<_tpl
-                    {{#custom-block 'some-text' data=(custom-helper 
+                    {{#custom-block 'some-text' data=(custom-helper
                       opt_a='foo'
                       opt_b='bar'
                     )}}...{{/custom-block}}
@@ -1439,6 +1481,20 @@ class RegressionTest extends TestCase
                     ],
                 ],
                 'expected' => '#a(0)=b-321-123#c(1)=d-321-123#e(2)=f-321-123',
+            ],
+
+            [
+                'id' => 316,
+                'template' => '{{> StrongPartial text="Use the syntax: {{varName}}."}}',
+                'options' => new Options(
+                    partials: [
+                        'StrongPartial' => '<strong>{{text}}</strong>',
+                    ],
+                ),
+                'data' => [
+                    'varName' => 'unused',
+                ],
+                'expected' => '<strong>Use the syntax: {{varName}}.</strong>',
             ],
 
             [

@@ -1,6 +1,6 @@
 # PHP Handlebars
 
-An extremely fast PHP implementation of [Handlebars](https://handlebarsjs.com/).
+A blazing fast, spec-compliant PHP implementation of [Handlebars](https://handlebarsjs.com/).
 
 Originally based on [LightnCandy](https://github.com/zordius/lightncandy), but rewritten to focus on
 more robust Handlebars.js compatibility without the need for excessive feature flags.
@@ -8,7 +8,9 @@ more robust Handlebars.js compatibility without the need for excessive feature f
 ## Features
 
 * Compile templates to pure PHP code.
-* Supports most of the [Handlebars.js spec](https://github.com/jbboehr/handlebars-spec).
+* Templates are parsed using [PHP Handlebars Parser](https://github.com/devtheorem/php-handlebars-parser),
+which implements the same lexical analysis and grammar specification as Handlebars.js.
+* Tested against the [Handlebars.js spec](https://github.com/jbboehr/handlebars-spec).
 
 ## Installation
 ```
@@ -44,8 +46,7 @@ echo $template(['org' => ['name' => 'DevTheorem']]);
 ## Compile Options
 
 You can alter the template compilation by passing an `Options` instance as the second argument to `compile` or `precompile`.
-For example, the `strict` option may be set to `true` to generate a debug template which
-contains additional info and will throw an exception for missing data:
+For example, the `strict` option may be set to `true` to generate a template which will throw an exception for missing data:
 
 ```php
 use DevTheorem\Handlebars\{Handlebars, Options};
@@ -111,10 +112,6 @@ When a helper is executed in a `{{{ }}}` expression, the original return value w
 Helpers may return a `DevTheorem\Handlebars\SafeString` instance to prevent escaping the return value.
 When constructing the string that will be marked as safe, any external content should be properly escaped
 using the `Handlebars::escapeExpression()` method to avoid potential security concerns.
-
-## Unsupported Features
-
-* `{{foo/bar}}` style variables (deprecated in official Handlebars.js). Instead use: `{{foo.bar}}`.
 
 ## Detailed Feature list
 

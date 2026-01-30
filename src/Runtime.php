@@ -175,13 +175,27 @@ final class Runtime
                 $cx->spVars['key'] = $index;
                 $cx->spVars['index'] = $isSparceArray ? $index : $i;
                 $i++;
+                $originalRaw = $raw;
                 if (isset($bp[0])) {
                     $raw = static::merge($raw, [$bp[0] => $raw]);
                 }
                 if (isset($bp[1])) {
                     $raw = static::merge($raw, [$bp[1] => $index]);
                 }
-                $ret[] = $cb($cx, $raw);
+                if ($bp) {
+                    $bpEntry = [];
+                    if (isset($bp[0])) {
+                        $bpEntry[$bp[0]] = $originalRaw;
+                    }
+                    if (isset($bp[1])) {
+                        $bpEntry[$bp[1]] = $index;
+                    }
+                    array_unshift($cx->blParam, $bpEntry);
+                    $ret[] = $cb($cx, $raw);
+                    array_shift($cx->blParam);
+                } else {
+                    $ret[] = $cb($cx, $raw);
+                }
             }
 
             if ($isObj) {
@@ -289,8 +303,9 @@ final class Runtime
      *
      * @param string $p partial name
      * @param array<array<mixed>|string|int>|string|int|null $v value to be the new context
+     * @param string $indent whitespace to prepend to each line of the partial's output
      */
-    public static function p(RuntimeContext $cx, string $p, $v, int $pid, string $sp): string
+    public static function p(RuntimeContext $cx, string $p, $v, int $pid, string $indent): string
     {
         $pp = ($p === '@partial-block') ? $p . ($pid > 0 ? $pid : $cx->partialId) : $p;
 
@@ -300,8 +315,28 @@ final class Runtime
 
         $cx = clone $cx;
         $cx->partialId = ($p === '@partial-block') ? ($pid > 0 ? $pid : ($cx->partialId > 0 ? $cx->partialId - 1 : 0)) : $pid;
+        $cx->partialDepth++;
 
-        return $cx->partials[$pp]($cx, static::merge($v[0][0], $v[1]), $sp);
+        if ($cx->partialDepth > 100) {
+            throw new \Exception("Runtime: the partial $p could not be found");
+        }
+
+        $result = $cx->partials[$pp]($cx, static::merge($v[0][0], $v[1]), '');
+
+        if ($indent !== '') {
+            $lines = explode("\n", $result);
+            $lastIdx = count($lines) - 1;
+            foreach ($lines as $i => &$line) {
+                if ($line === '' && $i === $lastIdx) {
+                    break;
+                }
+                $line = $indent . $line;
+            }
+            unset($line);
+            $result = implode("\n", $lines);
+        }
+
+        return $result;
     }
 
     /**

@@ -1,31 +1,30 @@
 {
     "name": "devtheorem/php-handlebars",
-    "description": "A fast, spec-compliant PHP implementation of Handlebars.",
+    "description": "A blazing fast, spec-compliant PHP implementation of Handlebars.",
     "keywords": [
-        "Handlebars",
-        "PHP",
+        "handlebars",
+        "mustache",
         "template",
         "render",
+        "parse",
         "compile"
     ],
+    "type": "library",
     "license": "MIT",
     "authors": [
         {
             "name": "Theodore Brown",
             "email": "theodorejb@outlook.com"
-        },
-        {
-            "name": "Zordius Chen",
-            "email": "zordius@gmail.com"
         }
     ],
     "require": {
-        "php": ">=8.2"
+        "php": ">=8.2",
+        "devtheorem/php-handlebars-parser": "^1.1.0"
     },
     "require-dev": {
-        "friendsofphp/php-cs-fixer": "^3.93",
+        "friendsofphp/php-cs-fixer": "^3.94",
         "jbboehr/handlebars-spec": "dev-master",
-        "phpstan/phpstan": "^2.1.38",
+        "phpstan/phpstan": "^2.1.40",
         "phpunit/phpunit": "^11.5"
     },
     "autoload": {
