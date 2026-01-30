@@ -20,14 +20,4 @@ class ExpressionTest extends TestCase
         $this->assertSame("['a']", Expression::arrayString(['a']));
         $this->assertSame("['a']['b']['c']", Expression::arrayString(['a', 'b', 'c']));
     }
-
-    public function testToString(): void
-    {
-        $this->assertSame('[a].[b]', Expression::toString(0, false, ['a', 'b']));
-        $this->assertSame('@[root]', Expression::toString(0, true, ['root']));
-        $this->assertSame('this.[id]', Expression::toString(0, false, [null, 'id']));
-        $this->assertSame('@[root].[a].[b]', Expression::toString(0, true, ['root', 'a', 'b']));
-        $this->assertSame('../../[a].[b]', Expression::toString(2, false, ['a', 'b']));
-        $this->assertSame('../[a\'b]', Expression::toString(1, false, ['a\'b']));
-    }
 }

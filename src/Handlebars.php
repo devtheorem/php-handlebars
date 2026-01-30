@@ -2,12 +2,10 @@
 
 namespace DevTheorem\Handlebars;
 
+use DevTheorem\HandlebarsParser\ParserFactory;
+
 final class Handlebars
 {
-    protected static Context $lastContext;
-    /** @var array<mixed> */
-    public static array $lastParsed;
-
     /**
      * Compiles a template so it can be executed immediately.
      * @return \Closure(mixed=, array<mixed>=):string
@@ -23,14 +21,14 @@ final class Handlebars
     public static function precompile(string $template, Options $options = new Options()): string
     {
         $context = new Context($options);
-        static::handleError($context);
-
-        $code = Compiler::compileTemplate($context, $template);
-        static::$lastParsed = Compiler::$lastParsed;
-        static::handleError($context);
+        $parser = (new ParserFactory())->create($options->ignoreStandalone);
+        $program = $parser->parse($template);
+        $compiler = new Compiler($parser);
+        $code = $compiler->compile($program, $context);
+        $compiler->handleDynamicPartials();
 
         // return full PHP render code as string
-        return Compiler::composePHPRender($context, $code);
+        return $compiler->composePHPRender($code);
     }
 
     /**
@@ -52,25 +50,5 @@ final class Handlebars
         $search = ['&', '<', '>', '"', "'", '`', '='];
         $replace = ['&amp;', '&lt;', '&gt;', '&quot;', '&#x27;', '&#x60;', '&#x3D;'];
         return str_replace($search, $replace, $string);
-    }
-
-    /**
-     * @throws \Exception
-     */
-    protected static function handleError(Context $context): void
-    {
-        static::$lastContext = $context;
-
-        if ($context->error) {
-            throw new \Exception(implode("\n", $context->error));
-        }
-    }
-
-    /**
-     * Get last compiler context.
-     */
-    public static function getContext(): Context
-    {
-        return static::$lastContext;
     }
 }

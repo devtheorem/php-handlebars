@@ -20,10 +20,11 @@
         }
     ],
     "require": {
-        "php": ">=8.2"
+        "php": ">=8.2",
+        "devtheorem/php-handlebars-parser": "^1.0"
     },
     "require-dev": {
-        "friendsofphp/php-cs-fixer": "^3.93",
+        "friendsofphp/php-cs-fixer": "^3.94",
         "jbboehr/handlebars-spec": "dev-master",
         "phpstan/phpstan": "^2.1.38",
         "phpunit/phpunit": "^11.5"

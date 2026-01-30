@@ -53,17 +53,6 @@ class HandlebarsSpecTest extends TestCase
             $spec['data'] = new \stdClass();
         }
 
-        // 2. Not supported case: foo/bar path
-        if (
-            $spec['it'] === 'literal paths'
-            || $spec['it'] === 'this keyword nested inside path'
-            || $spec['it'] === 'this keyword nested inside helpers param'
-            || $spec['it'] === 'parameter data throws when using complex scope references'
-            || $spec['it'] === 'block with complex lookup using nested context'
-        ) {
-            $this->markTestIncomplete('Not supported case: foo/bar path');
-        }
-
         // 4. block parameters, special case now do not support
         if ($spec['it'] === 'should not take presedence over pathed values') {
             $this->markTestIncomplete('Not supported case: just skip it');
@@ -71,8 +60,7 @@ class HandlebarsSpecTest extends TestCase
 
         // 5. Not supported case: helperMissing and blockHelperMissing
         if (
-            ($spec['it'] === 'if a context is not found, helperMissing is used')
-            || ($spec['it'] === 'if a context is not found, custom helperMissing is used')
+            ($spec['it'] === 'if a context is not found, custom helperMissing is used')
             || ($spec['it'] === 'if a value is not found, custom helperMissing is used')
             || ($spec['it'] === 'should include in simple block calls')
             || ($spec['it'] === 'should include full id')
@@ -91,7 +79,7 @@ class HandlebarsSpecTest extends TestCase
             // stringParams
             || $spec['it'] === 'in string params mode,'
 
-            // Decorators are deprecated: https://github.com/wycats/handlebars.js/blob/master/docs/decorators-api.md
+            // Decorators are deprecated: https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md
             || $spec['description'] === 'blocks - decorators'
 
             // strict mode
@@ -116,7 +104,6 @@ class HandlebarsSpecTest extends TestCase
             || $spec['it'] === 'rendering function partial in vm mode'
 
             // todo: fix
-            || $spec['it'] === 'each with block params'
             || $spec['it'] === 'pathed lambas with parameters'
             || $spec['it'] === 'lambdas are resolved by blockHelperMissing, not handlebars proper'
             || $spec['description'] === 'helpers - the lookupProperty-option'
