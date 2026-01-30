@@ -38,10 +38,10 @@ class RuntimeTest extends TestCase
     public function testWi(): void
     {
         $cx = new RuntimeContext();
-        $this->assertSame('', Runtime::wi($cx, false, null, new \stdClass(), function () {return 'A'; }));
-        $this->assertSame('', Runtime::wi($cx, null, null, null, function () {return 'A'; }));
-        $this->assertSame('{"a":"b"}', Runtime::wi($cx, ['a' => 'b'], null, ['a' => 'c'], function ($c, $i) {return json_encode($i); }));
-        $this->assertSame('-b=', Runtime::wi($cx, 'b', null, ['a' => 'b'], function ($c, $i) {return "-$i="; }));
+        $this->assertSame('', Runtime::wi($cx, false, null, new \stdClass(), fn() => 'A'));
+        $this->assertSame('', Runtime::wi($cx, null, null, null, fn() => 'A'));
+        $this->assertSame('{"a":"b"}', Runtime::wi($cx, ['a' => 'b'], null, ['a' => 'c'], fn($c, $i) => json_encode($i)));
+        $this->assertSame('-b=', Runtime::wi($cx, 'b', null, ['a' => 'b'], fn($c, $i) => "-$i="));
     }
 
     private static function createStringable(string $value): \Stringable

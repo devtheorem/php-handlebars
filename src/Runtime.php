@@ -331,8 +331,8 @@ final class Runtime
         $options = new HelperOptions(
             name: $ch,
             hash: $vars[1],
-            fn: function () { return ''; },
-            inverse: function () { return ''; },
+            fn: fn() => '',
+            inverse: fn() => '',
             blockParams: 0,
             scope: $_this,
             data: $cx->spVars,
