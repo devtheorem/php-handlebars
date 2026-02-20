@@ -97,11 +97,6 @@ class HandlebarsSpecTest extends TestCase
 
             // todo: fix
             || $spec['description'] === 'helpers - the lookupProperty-option'
-
-            // need confirm
-            || $spec['it'] === "bug reported by @fat where lambdas weren't being properly resolved"
-            || $spec['it'] === 'depthed block functions with context argument'
-            || $spec['it'] === 'depthed functions with context argument'
         ) {
             $this->markTestIncomplete('TODO: require fix');
         }

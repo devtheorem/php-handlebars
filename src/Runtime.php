@@ -110,14 +110,14 @@ final class Runtime
         }
 
         if (is_array($v)) {
-            if (count(array_diff_key($v, array_keys(array_keys($v)))) > 0) {
-                return '[object Object]';
-            } else {
+            if (array_is_list($v)) {
                 $ret = '';
                 foreach ($v as $vv) {
                     $ret .= static::raw($vv) . ',';
                 }
                 return substr($ret, 0, -1);
+            } else {
+                return '[object Object]';
             }
         }
 
@@ -152,7 +152,7 @@ final class Runtime
         // #var, detect input type is object or not
         if (!$loop && $isAry) {
             $keys = array_keys($v);
-            $loop = (count(array_diff_key($v, array_keys($keys))) == 0);
+            $loop = array_is_list($v);
             $isObj = !$loop;
         }
 
@@ -161,7 +161,7 @@ final class Runtime
                 // Detect input type is object or not when never done once
                 if ($keys == null) {
                     $keys = array_keys($v);
-                    $isObj = (count(array_diff_key($v, array_keys($keys))) > 0);
+                    $isObj = !array_is_list($v);
                 }
             }
             $ret = [];
@@ -274,9 +274,7 @@ final class Runtime
         if ($v === $in) {
             $ret = $cb($cx, $v);
         } else {
-            $cx->scopes[] = $in;
-            $ret = $cb($cx, $v);
-            array_pop($cx->scopes);
+            $ret = static::withScope($cx, $in, $v, $cb);
         }
 
         $cx->partials = $savedPartials;
@@ -407,12 +405,8 @@ final class Runtime
      */
     public static function hbbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this, bool $inverted, ?\Closure $cb, ?\Closure $else = null): mixed
     {
-        $blockParams = 0;
+        $blockParams = isset($vars[2]) ? count($vars[2]) : 0;
         $data = &$cx->spVars;
-
-        if (isset($vars[2])) {
-            $blockParams = count($vars[2]);
-        }
 
         // invert the logic
         if ($inverted) {
@@ -421,27 +415,80 @@ final class Runtime
             $cb = $tmp;
         }
 
-        $fn = function ($context = null, $data = null) use ($cx, $_this, $cb, $vars) {
+        $options = new HelperOptions(
+            name: $ch,
+            hash: $vars[1],
+            fn: static::makeBlockFn($cx, $_this, $cb, $vars),
+            inverse: static::makeInverseFn($cx, $_this, $else),
+            blockParams: $blockParams,
+            scope: $_this,
+            data: $data,
+        );
+
+        return static::applyBlockHelperMissing($cx, static::exch($cx, $ch, $vars, $options), $_this, $cb, $else);
+    }
+
+    /**
+     * Like hbbch but for non-registered paths (pathed/depthed/scoped block calls with params).
+     * @param array<array<mixed>|string|int> $vars variables for the helper
+     * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
+     * @param \Closure|null $cb callback function to render child context
+     * @param \Closure|null $else callback function to render child context when {{else}}
+     */
+    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $vars, mixed &$_this, ?\Closure $cb, ?\Closure $else = null): mixed
+    {
+        if (!$callable instanceof \Closure) {
+            throw new \Exception('"' . $name . '" is not a block helper function');
+        }
+
+        $blockParams = isset($vars[2]) ? count($vars[2]) : 0;
+        $data = &$cx->spVars;
+
+        $options = new HelperOptions(
+            name: '',
+            hash: $vars[1],
+            fn: static::makeBlockFn($cx, $_this, $cb, $vars),
+            inverse: static::makeInverseFn($cx, $_this, $else),
+            blockParams: $blockParams,
+            scope: $_this,
+            data: $data,
+        );
+
+        $args = $vars[0];
+        $args[] = $options;
+        try {
+            $result = $callable(...$args);
+        } catch (\Throwable $e) {
+            throw new \Exception('Runtime: dynamic block helper error: ' . $e->getMessage());
+        }
+
+        return static::applyBlockHelperMissing($cx, $result, $_this, $cb, $else);
+    }
+
+    /**
+     * Build the $fn closure passed to HelperOptions for block helpers.
+     * Handles spVars updates, block-param injection, and context scope pushing.
+     *
+     * @param array<array<mixed>|string|int> $vars
+     */
+    private static function makeBlockFn(RuntimeContext $cx, mixed $_this, ?\Closure $cb, array $vars): \Closure
+    {
+        return function ($context = null, $data = null) use ($cx, $_this, $cb, $vars) {
             $cx = clone $cx;
             $old_spvar = $cx->spVars;
             if (isset($data['data'])) {
                 $cx->spVars = array_merge(['root' => $old_spvar['root']], $data['data'], ['_parent' => $old_spvar]);
             }
 
-            $ex = false;
             if (isset($data['blockParams'], $vars[2])) {
                 $ex = array_combine($vars[2], array_slice($data['blockParams'], 0, count($vars[2])));
                 array_unshift($cx->blParam, $ex);
-            } elseif (isset($cx->blParam[0])) {
-                $ex = $cx->blParam[0];
             }
 
             if ($context === null || $context === $_this) {
                 $ret = $cb($cx, $_this);
             } else {
-                $cx->scopes[] = $_this;
-                $ret = $cb($cx, $context);
-                array_pop($cx->scopes);
+                $ret = static::withScope($cx, $_this, $context, $cb);
             }
 
             if (isset($data['data'])) {
@@ -449,43 +496,43 @@ final class Runtime
             }
             return $ret;
         };
+    }
 
-        if ($else) {
-            $inverse = function ($context = null) use ($cx, $_this, $else) {
+    /**
+     * Build the $inverse closure passed to HelperOptions for block helpers.
+     */
+    private static function makeInverseFn(RuntimeContext $cx, mixed $_this, ?\Closure $else): \Closure
+    {
+        return $else
+            ? function ($context = null) use ($cx, $_this, $else) {
                 if ($context === null) {
-                    $ret = $else($cx, $_this);
-                } else {
-                    $cx->scopes[] = $_this;
-                    $ret = $else($cx, $context);
-                    array_pop($cx->scopes);
+                    return $else($cx, $_this);
                 }
-                return $ret;
-            };
-        } else {
-            $inverse = function () {
-                return '';
-            };
-        }
+                return static::withScope($cx, $_this, $context, $else);
+            }
+        : fn() => '';
+    }
 
-        $options = new HelperOptions(
-            name: $ch,
-            hash: $vars[1],
-            fn: $fn,
-            inverse: $inverse,
-            blockParams: $blockParams,
-            scope: $_this,
-            data: $data,
-        );
-
-        $result = static::exch($cx, $ch, $vars, $options);
-
-        // If the helper returned a string, it managed its own rendering (called options.fn())
+    /**
+     * Apply blockHelperMissing semantics: if the helper returned a string/SafeString,
+     * pass it through; otherwise treat the return value as a section context.
+     */
+    private static function applyBlockHelperMissing(RuntimeContext $cx, mixed $result, mixed $_this, ?\Closure $cb, ?\Closure $else): string
+    {
         if (is_string($result) || $result instanceof SafeString) {
             return $result;
         }
 
-        // Otherwise apply blockHelperMissing semantics: use the return value as the block context
-        return static::sec($cx, $result, null, $_this, false, $cb, $else);
+        // $cb may be null (inverted block with no else clause) after the inversion swap in hbbch
+        return static::sec($cx, $result, null, $_this, false, $cb ?? static fn() => '', $else);
+    }
+
+    private static function withScope(RuntimeContext $cx, mixed $scope, mixed $context, \Closure $cb): string
+    {
+        $cx->scopes[] = $scope;
+        $ret = $cb($cx, $context);
+        array_pop($cx->scopes);
+        return $ret;
     }
 
     /**
