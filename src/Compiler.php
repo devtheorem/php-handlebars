@@ -350,10 +350,9 @@ final class Compiler
 
         $body = $block->program ? $this->compileProgram($block->program, true) : "''";
 
-        // Register at compile time so {{> partialName}} can find it
-        $func = "function (\$cx, \$in, \$sp) {return $body;}";
+        // Register in usedPartial so {{> partialName}} can compile without error.
+        // Do NOT add to partialCode - `in()` handles runtime registration, keeping inline partials block-scoped.
         $this->context->usedPartial[$partialName] = '';
-        $this->context->partialCode[$partialName] = Expression::quoteString($partialName) . " => $func";
 
         return "'." . $this->getFuncName('in', "\$cx, '" . addcslashes($partialName, "'\\") . "', function(\$cx, \$in, \$sp) {return $body;}") . ").'";
     }
@@ -404,6 +403,17 @@ final class Compiler
         $pid = $this->context->partialBlockId;
 
         $name = $statement->name;
+
+        // Hoist inline partial registrations so they run before the partial is called.
+        // Without this, inline partials defined in the block would only be registered when
+        // {{> @partial-block}} is invoked, too late for partials that call them directly.
+        $hoisted = '';
+        foreach ($statement->program->body as $stmt) {
+            if ($stmt instanceof BlockStatement && $stmt->type === 'DecoratorBlock') {
+                $hoisted .= $this->accept($stmt);
+            }
+        }
+
         $body = $this->compileProgram($statement->program, true);
         $found = false;
 
@@ -444,7 +454,8 @@ final class Compiler
         $vars = $this->compilePartialParams($statement->params, $statement->hash);
         $sp = "''";
 
-        return "'."
+        return $hoisted
+            . "'."
             . $this->getFuncName('in', "\$cx, '@partial-block$pid', function(\$cx, \$in, \$sp) {return $body;}") . ")."
             . $this->getFuncName('p', "\$cx, $p, $vars, $pid, $sp") . ").'";
     }

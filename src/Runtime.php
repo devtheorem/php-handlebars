@@ -260,6 +260,8 @@ final class Runtime
             return $else ? $else($cx, $in) : '';
         }
 
+        $savedPartials = $cx->partials;
+
         if ($v === $in) {
             $ret = $cb($cx, $v);
         } else {
@@ -267,6 +269,8 @@ final class Runtime
             $ret = $cb($cx, $v);
             array_pop($cx->scopes);
         }
+
+        $cx->partials = $savedPartials;
 
         return $ret;
     }

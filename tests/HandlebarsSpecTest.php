@@ -98,9 +98,8 @@ class HandlebarsSpecTest extends TestCase
         }
 
         if (
-            // inline partials
-            $spec['it'] === 'should define inline partials for block' && isset($spec['number'])
-            || $spec['it'] === 'rendering function partial in vm mode'
+            // partial as function rather than string
+            $spec['it'] === 'rendering function partial in vm mode'
 
             // todo: fix
             || $spec['it'] === 'pathed lambas with parameters'
