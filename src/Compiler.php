@@ -240,7 +240,7 @@ final class Compiler
         }
 
         $negate = $unless ? '!' : '';
-        return "'.(({$negate}" . $this->getFuncName('ifvar', $var) . ", $includeZero)) ? $then : $else).'";
+        return "'.(({$negate}" . $this->getFuncName('ifvar', "LR::dv($var, \$in)") . ", $includeZero)) ? $then : $else).'";
     }
 
     private function compileEach(BlockStatement $block): string
@@ -265,7 +265,7 @@ final class Compiler
             ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
             : '';
 
-        return "'." . $this->getFuncName('sec', "\$cx, $var, $bs, \$in, true, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ").'";
+        return "'." . $this->getFuncName('sec', "\$cx, LR::dv($var, \$in), $bs, \$in, true, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ").'";
     }
 
     private function compileWith(BlockStatement $block): string
@@ -283,7 +283,7 @@ final class Compiler
             ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
             : '';
 
-        return "'." . $this->getFuncName('wi', "\$cx, $var, $bs, \$in, function(\$cx, \$in) {return $body;}$else") . ").'";
+        return "'." . $this->getFuncName('wi', "\$cx, LR::dv($var, \$in), $bs, \$in, function(\$cx, \$in) {return $body;}$else") . ").'";
     }
 
     private function compileSection(BlockStatement $block): string

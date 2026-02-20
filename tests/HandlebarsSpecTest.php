@@ -97,9 +97,6 @@ class HandlebarsSpecTest extends TestCase
 
             // need confirm
             || $spec['it'] === "bug reported by @fat where lambdas weren't being properly resolved"
-            || $spec['it'] === 'if with function argument'
-            || $spec['it'] === 'with with function argument'
-            || $spec['it'] === 'each with function argument' && !isset($spec['number'])
             || $spec['it'] === 'depthed block functions with context argument'
             || $spec['it'] === 'depthed functions with context argument'
         ) {
