@@ -417,7 +417,7 @@ final class Runtime
                 $ex = $cx->blParam[0];
             }
 
-            if ($context === null) {
+            if ($context === null || $context === $_this) {
                 $ret = $cb($cx, is_array($ex) ? static::merge($_this, $ex) : $_this);
             } else {
                 $cx->scopes[] = $_this;

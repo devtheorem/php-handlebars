@@ -109,7 +109,6 @@ class HandlebarsSpecTest extends TestCase
             || $spec['description'] === 'helpers - the lookupProperty-option'
 
             // need confirm
-            || $spec['it'] === 'GH-1135 : Context handling within each iteration'
             || $spec['it'] === "bug reported by @fat where lambdas weren't being properly resolved"
             || $spec['it'] === 'if with function argument'
             || $spec['it'] === 'with with function argument'
