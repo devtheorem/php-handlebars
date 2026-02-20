@@ -53,11 +53,6 @@ class HandlebarsSpecTest extends TestCase
             $spec['data'] = new \stdClass();
         }
 
-        // 4. block parameters, special case now do not support
-        if ($spec['it'] === 'should not take presedence over pathed values') {
-            $this->markTestIncomplete('Not supported case: just skip it');
-        }
-
         // 5. Not supported case: helperMissing and blockHelperMissing
         if (
             ($spec['it'] === 'if a context is not found, custom helperMissing is used')

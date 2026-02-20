@@ -433,10 +433,10 @@ final class Runtime
             }
 
             if ($context === null || $context === $_this) {
-                $ret = $cb($cx, is_array($ex) ? static::merge($_this, $ex) : $_this);
+                $ret = $cb($cx, $_this);
             } else {
                 $cx->scopes[] = $_this;
-                $ret = $cb($cx, is_array($ex) ? static::merge($context, $ex) : $context);
+                $ret = $cb($cx, $context);
                 array_pop($cx->scopes);
             }
 

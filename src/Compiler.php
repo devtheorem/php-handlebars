@@ -324,7 +324,13 @@ final class Compiler
             return "'." . $this->getFuncName('hbbch', "\$cx, '$helperName', $params, \$in, true, function(\$cx, \$in) {return $body;}") . ").'";
         }
 
+        if ($bp) {
+            array_unshift($this->blockParamValues, $bp);
+        }
         $body = $this->compileProgram($block->program);
+        if ($bp) {
+            array_shift($this->blockParamValues);
+        }
         $else = $block->inverse
             ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
             : '';
@@ -602,8 +608,8 @@ final class Compiler
             return "isset(\$cx->partials['@partial-block' . \$cx->partialId]) ? true : null";
         }
 
-        // Check block params (depth-0, non-data paths only)
-        if (!$data && $depth === 0) {
+        // Check block params (depth-0, non-data, non-scoped paths only)
+        if (!$data && $depth === 0 && !self::scopedId($expression)) {
             $bpIdx = $this->lookupBlockParam($stringParts[0]);
             if ($bpIdx !== null) {
                 $escapedName = addcslashes($stringParts[0], "'\\");
@@ -841,6 +847,16 @@ final class Compiler
     }
 
     /**
+     * Equivalent to AST.helpers.scopedId in Handlebars.js.
+     * A path is scoped when it starts with `.` (e.g. `./value`) or `this`,
+     * meaning it is an explicit context lookup that bypasses helpers and block params.
+     */
+    private static function scopedId(PathExpression $path): bool
+    {
+        return (bool) preg_match('/^\.|this\b/', $path->original);
+    }
+
+    /**
      * Extract simple helper name from a path if it's a single-segment, non-data, depth-0 path.
      */
     private function getSimpleHelperName(PathExpression|Literal $path): ?string
@@ -849,7 +865,7 @@ final class Compiler
             return null;
         }
 
-        if ($path->data || $path->depth > 0 || $path->this_) {
+        if ($path->data || $path->depth > 0 || self::scopedId($path)) {
             return null;
         }
 
