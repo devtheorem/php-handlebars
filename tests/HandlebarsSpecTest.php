@@ -94,11 +94,6 @@ class HandlebarsSpecTest extends TestCase
         if (
             // partial as function rather than string
             $spec['it'] === 'rendering function partial in vm mode'
-
-            // need confirm
-            || $spec['it'] === "bug reported by @fat where lambdas weren't being properly resolved"
-            || $spec['it'] === 'depthed block functions with context argument'
-            || $spec['it'] === 'depthed functions with context argument'
         ) {
             $this->markTestIncomplete('TODO: require fix');
         }

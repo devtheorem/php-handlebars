@@ -75,6 +75,12 @@ class ErrorTest extends TestCase
                 ),
                 'expected' => 'Runtime: call custom helper \'foo\' error: Expect the unexpected',
             ],
+            // ensure that callable strings in data aren't treated as functions
+            [
+                'template' => "{{#foo.bar 'arg'}}{{/foo.bar}}",
+                'data' => ['foo' => ['bar' => 'strlen']],
+                'expected' => '"foo.bar" is not a block helper function',
+            ],
         ];
 
         return array_map(fn($i) => [$i], $errorCases);
