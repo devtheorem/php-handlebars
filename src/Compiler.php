@@ -184,9 +184,7 @@ final class Compiler
 
             // Regular section: {{#"foo"}}...{{/"foo"}}
             $body = $this->compileProgram($block->program, true);
-            $else = $block->inverse
-                ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
-                : '';
+            $else = $this->compileElseClause($block);
             return "'." . $this->getFuncName('sec', "\$cx, $var, null, \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ").'";
         }
 
@@ -195,8 +193,24 @@ final class Compiler
             return $this->compileInvertedSection($block);
         }
 
+        // Non-simple path with params: invoke as a dynamic block helper call
+        if ($block->params) {
+            return $this->compileDynamicBlockHelper($block);
+        }
+
         // Regular section: {{#var}}...{{/var}}
         return $this->compileSection($block);
+    }
+
+    private function compileDynamicBlockHelper(BlockStatement $block): string
+    {
+        $varPath = $this->compileExpression($block->path);
+        $bp = $block->program->blockParams;
+        $params = $this->compileParams($block->params, $block->hash, $bp ?: null);
+        $body = $this->compileProgramWithBlockParams($block->program, $bp);
+        $else = $this->compileElseClause($block);
+
+        return "'." . $this->getFuncName('dynhbbch', "\$cx, $varPath, $params, \$in, function(\$cx, \$in) {return $body;}$else") . ").'";
     }
 
     private function resolveHelper(string $helperName): bool
@@ -253,17 +267,8 @@ final class Compiler
         $bp = $block->program ? $block->program->blockParams : [];
         $bs = $bp ? Expression::listString($bp) : 'null';
 
-        if ($bp) {
-            array_unshift($this->blockParamValues, $bp);
-        }
-        $body = $block->program ? $this->compileProgram($block->program, true) : "''";
-        if ($bp) {
-            array_shift($this->blockParamValues);
-        }
-
-        $else = $block->inverse
-            ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
-            : '';
+        $body = $block->program ? $this->compileProgramWithBlockParams($block->program, $bp, true) : "''";
+        $else = $this->compileElseClause($block);
 
         return "'." . $this->getFuncName('sec', "\$cx, LR::dv($var, \$in), $bs, \$in, true, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ").'";
     }
@@ -279,9 +284,7 @@ final class Compiler
         $bs = $bp ? Expression::listString($bp) : 'null';
 
         $body = $block->program ? $this->compileProgram($block->program) : "''";
-        $else = $block->inverse
-            ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
-            : '';
+        $else = $this->compileElseClause($block);
 
         return "'." . $this->getFuncName('wi', "\$cx, LR::dv($var, \$in), $bs, \$in, function(\$cx, \$in) {return $body;}$else") . ").'";
     }
@@ -291,9 +294,7 @@ final class Compiler
         $var = $this->compileExpression($block->path);
 
         $body = $block->program ? $this->compileProgram($block->program, true) : "''";
-        $else = $block->inverse
-            ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
-            : '';
+        $else = $this->compileElseClause($block);
 
         return "'." . $this->getFuncName('sec', "\$cx, $var, null, \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ").'";
     }
@@ -324,16 +325,8 @@ final class Compiler
             return "'." . $this->getFuncName('hbbch', "\$cx, '$helperName', $params, \$in, true, function(\$cx, \$in) {return $body;}") . ").'";
         }
 
-        if ($bp) {
-            array_unshift($this->blockParamValues, $bp);
-        }
-        $body = $this->compileProgram($block->program);
-        if ($bp) {
-            array_shift($this->blockParamValues);
-        }
-        $else = $block->inverse
-            ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
-            : '';
+        $body = $this->compileProgramWithBlockParams($block->program, $bp);
+        $else = $this->compileElseClause($block);
 
         return "'." . $this->getFuncName('hbbch', "\$cx, '$helperName', $params, \$in, false, function(\$cx, \$in) {return $body;}$else") . ").'";
     }
@@ -581,16 +574,7 @@ final class Compiler
         $depth = $expression->depth;
         $parts = $expression->parts;
 
-        $base = $data ? '$cx->spVars' : '$in';
-
-        // Handle depth (../ traversal)
-        if ($depth > 0) {
-            if ($data) {
-                $base .= str_repeat("['_parent']", $depth);
-            } else {
-                $base = "\$cx->scopes[count(\$cx->scopes)-$depth]";
-            }
-        }
+        $base = $this->buildBasePath($data, $depth);
 
         // Filter out SubExpression parts for string-only operations
         $stringParts = array_values(array_filter($parts, fn($p) => is_string($p)));
@@ -615,28 +599,19 @@ final class Compiler
             if ($bpIdx !== null) {
                 $escapedName = addcslashes($stringParts[0], "'\\");
                 $bpBase = "\$cx->blParam[$bpIdx]['$escapedName']";
-                $remaining = '';
-                foreach (array_slice($stringParts, 1) as $part) {
-                    $remaining .= "['" . addcslashes($part, "'\\") . "']";
-                }
+                $remaining = $this->buildKeyAccess(array_slice($stringParts, 1));
                 return "$bpBase$remaining ?? $miss";
             }
         }
 
         // Build array access string
-        $n = '';
-        foreach ($stringParts as $part) {
-            $n .= "['" . addcslashes($part, "'\\") . "']";
-        }
+        $n = $this->buildKeyAccess($stringParts);
 
         // Handle .length special case
         $lastPart = end($stringParts);
         if ($lastPart === 'length') {
             $varParts = array_slice($stringParts, 0, -1);
-            $p = '';
-            foreach ($varParts as $part) {
-                $p .= "['" . addcslashes($part, "'\\") . "']";
-            }
+            $p = $this->buildKeyAccess($varParts);
 
             $checks = [];
             if ($depth > 0) {
@@ -882,6 +857,60 @@ final class Compiler
     }
 
     /**
+     * Compile the else/inverse clause of a block as a trailing closure argument, or '' if absent.
+     */
+    private function compileElseClause(BlockStatement $block): string
+    {
+        return $block->inverse
+            ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
+            : '';
+    }
+
+    /**
+     * Compile a block program, pushing/popping block params around the compilation.
+     * @param string[] $bp
+     */
+    private function compileProgramWithBlockParams(Program $program, array $bp, bool $withSp = false): string
+    {
+        if ($bp) {
+            array_unshift($this->blockParamValues, $bp);
+        }
+        $body = $this->compileProgram($program, $withSp);
+        if ($bp) {
+            array_shift($this->blockParamValues);
+        }
+        return $body;
+    }
+
+    /**
+     * Build the base path expression for a given data flag and depth.
+     */
+    private function buildBasePath(bool $data, int $depth): string
+    {
+        $base = $data ? '$cx->spVars' : '$in';
+        if ($depth > 0) {
+            $base = $data
+                ? $base . str_repeat("['_parent']", $depth)
+                : "\$cx->scopes[count(\$cx->scopes)-$depth]";
+        }
+        return $base;
+    }
+
+    /**
+     * Build a chained array-access string for the given path parts.
+     * e.g. ['foo', 'bar'] → "['foo']['bar']"
+     * @param string[] $parts
+     */
+    private function buildKeyAccess(array $parts): string
+    {
+        $n = '';
+        foreach ($parts as $part) {
+            $n .= "['" . addcslashes($part, "'\\") . "']";
+        }
+        return $n;
+    }
+
+    /**
      * Build function call with optional strict-mode debug wrapping.
      */
     private function getFuncName(string $name, string $args): string
@@ -950,20 +979,8 @@ final class Compiler
         $depth = $path->depth;
         $parts = array_values(array_filter($path->parts, fn($p) => is_string($p)));
 
-        $base = $data ? '$cx->spVars' : '$in';
-
-        if ($depth > 0) {
-            if ($data) {
-                $base .= str_repeat("['_parent']", $depth);
-            } else {
-                $base = "\$cx->scopes[count(\$cx->scopes)-$depth]";
-            }
-        }
-
-        $n = '';
-        foreach ($parts as $part) {
-            $n .= "['" . addcslashes($part, "'\\") . "']";
-        }
+        $base = $this->buildBasePath($data, $depth);
+        $n = $this->buildKeyAccess($parts);
 
         $miss = $this->context->options->strict
             ? "LR::miss('" . addcslashes($path->original, "'\\") . "')"

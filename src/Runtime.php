@@ -412,12 +412,8 @@ final class Runtime
      */
     public static function hbbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this, bool $inverted, ?\Closure $cb, ?\Closure $else = null): mixed
     {
-        $blockParams = 0;
+        $blockParams = isset($vars[2]) ? count($vars[2]) : 0;
         $data = &$cx->spVars;
-
-        if (isset($vars[2])) {
-            $blockParams = count($vars[2]);
-        }
 
         // invert the logic
         if ($inverted) {
@@ -426,19 +422,75 @@ final class Runtime
             $cb = $tmp;
         }
 
-        $fn = function ($context = null, $data = null) use ($cx, $_this, $cb, $vars) {
+        $options = new HelperOptions(
+            name: $ch,
+            hash: $vars[1],
+            fn: static::makeBlockFn($cx, $_this, $cb, $vars),
+            inverse: static::makeInverseFn($cx, $_this, $else),
+            blockParams: $blockParams,
+            scope: $_this,
+            data: $data,
+        );
+
+        return static::applyBlockHelperMissing($cx, static::exch($cx, $ch, $vars, $options), $_this, $cb, $else);
+    }
+
+    /**
+     * Like hbbch but for non-registered paths (pathed/depthed/scoped block calls with params).
+     * If $callable is not callable, falls back to sec() using it as a section value.
+     * @param array<array<mixed>|string|int> $vars variables for the helper
+     * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
+     * @param \Closure|null $cb callback function to render child context
+     * @param \Closure|null $else callback function to render child context when {{else}}
+     */
+    public static function dynhbbch(RuntimeContext $cx, mixed $callable, array $vars, mixed &$_this, ?\Closure $cb, ?\Closure $else = null): mixed
+    {
+        if (!is_callable($callable)) {
+            return static::sec($cx, $callable, null, $_this, false, $cb, $else);
+        }
+
+        $blockParams = isset($vars[2]) ? count($vars[2]) : 0;
+        $data = &$cx->spVars;
+
+        $options = new HelperOptions(
+            name: '',
+            hash: $vars[1],
+            fn: static::makeBlockFn($cx, $_this, $cb, $vars),
+            inverse: static::makeInverseFn($cx, $_this, $else),
+            blockParams: $blockParams,
+            scope: $_this,
+            data: $data,
+        );
+
+        $args = $vars[0];
+        $args[] = $options;
+        try {
+            $result = $callable(...$args);
+        } catch (\Throwable $e) {
+            throw new \Exception('Runtime: dynamic block helper error: ' . $e->getMessage());
+        }
+
+        return static::applyBlockHelperMissing($cx, $result, $_this, $cb, $else);
+    }
+
+    /**
+     * Build the $fn closure passed to HelperOptions for block helpers.
+     * Handles spVars updates, block-param injection, and context scope pushing.
+     *
+     * @param array<array<mixed>|string|int> $vars
+     */
+    private static function makeBlockFn(RuntimeContext $cx, mixed $_this, ?\Closure $cb, array $vars): \Closure
+    {
+        return function ($context = null, $data = null) use ($cx, $_this, $cb, $vars) {
             $cx = clone $cx;
             $old_spvar = $cx->spVars;
             if (isset($data['data'])) {
                 $cx->spVars = array_merge(['root' => $old_spvar['root']], $data['data'], ['_parent' => $old_spvar]);
             }
 
-            $ex = false;
             if (isset($data['blockParams'], $vars[2])) {
                 $ex = array_combine($vars[2], array_slice($data['blockParams'], 0, count($vars[2])));
                 array_unshift($cx->blParam, $ex);
-            } elseif (isset($cx->blParam[0])) {
-                $ex = $cx->blParam[0];
             }
 
             if ($context === null || $context === $_this) {
@@ -454,43 +506,38 @@ final class Runtime
             }
             return $ret;
         };
+    }
 
-        if ($else) {
-            $inverse = function ($context = null) use ($cx, $_this, $else) {
+    /**
+     * Build the $inverse closure passed to HelperOptions for block helpers.
+     */
+    private static function makeInverseFn(RuntimeContext $cx, mixed $_this, ?\Closure $else): \Closure
+    {
+        return $else
+            ? function ($context = null) use ($cx, $_this, $else) {
                 if ($context === null) {
-                    $ret = $else($cx, $_this);
-                } else {
-                    $cx->scopes[] = $_this;
-                    $ret = $else($cx, $context);
-                    array_pop($cx->scopes);
+                    return $else($cx, $_this);
                 }
+                $cx->scopes[] = $_this;
+                $ret = $else($cx, $context);
+                array_pop($cx->scopes);
                 return $ret;
-            };
-        } else {
-            $inverse = function () {
-                return '';
-            };
-        }
+            }
+        : fn() => '';
+    }
 
-        $options = new HelperOptions(
-            name: $ch,
-            hash: $vars[1],
-            fn: $fn,
-            inverse: $inverse,
-            blockParams: $blockParams,
-            scope: $_this,
-            data: $data,
-        );
-
-        $result = static::exch($cx, $ch, $vars, $options);
-
-        // If the helper returned a string, it managed its own rendering (called options.fn())
+    /**
+     * Apply blockHelperMissing semantics: if the helper returned a string/SafeString,
+     * pass it through; otherwise treat the return value as a section context.
+     */
+    private static function applyBlockHelperMissing(RuntimeContext $cx, mixed $result, mixed $_this, ?\Closure $cb, ?\Closure $else): string
+    {
         if (is_string($result) || $result instanceof SafeString) {
             return $result;
         }
 
-        // Otherwise apply blockHelperMissing semantics: use the return value as the block context
-        return static::sec($cx, $result, null, $_this, false, $cb, $else);
+        // $cb may be null (inverted block with no else clause) after the inversion swap in hbbch
+        return static::sec($cx, $result, null, $_this, false, $cb ?? static fn() => '', $else);
     }
 
     /**
