@@ -493,11 +493,21 @@ final class Compiler
             }
 
             if (count($mustache->params) !== 0) {
+                // Non-simple path with params (data var or pathed expression): invoke via dv()
+                if ($helperName === null) {
+                    $varPath = $this->PathExpression($path);
+                    $args = array_map(fn($p) => $this->compileExpression($p), $mustache->params);
+                    $call = 'LR::dv(' . $varPath . ', ' . implode(', ', $args) . ')';
+                    return "'." . $this->getFuncName($fn, $call) . ").'";
+                }
                 throw new \Exception('Missing helper: "' . $helperName . '"');
             }
 
-            // Plain variable
+            // Plain variable; wrap data vars in dv() to support callables
             $varPath = $this->PathExpression($path);
+            if ($path->data) {
+                return "'." . $this->getFuncName($fn, "LR::dv($varPath)") . ").'";
+            }
             return "'." . $this->getFuncName($fn, $varPath) . ").'";
         }
 
@@ -521,10 +531,6 @@ final class Compiler
             : 'null';
         $val = "\$in['$escapedKey'] ?? $miss";
         return "'." . $this->getFuncName($fn, $val) . ").'";
-
-        // Fallback (sub-expression as path, theoretically)
-        //$val = $this->compileExpression($path);
-        //return "'." . $this->getFuncName($fn, $val) . ").'";
     }
 
     private function ContentStatement(ContentStatement $statement): string
@@ -564,11 +570,6 @@ final class Compiler
 
         if ($helperName !== null) {
             throw new \Exception('Missing helper: "' . $helperName . '"');
-
-            // Non-registered helper — still try as helper call
-            /*$this->context->usedHelpers[$helperName] = true;
-            $params = $this->compileParams($expression->params, $expression->hash);
-            return "LR::hbch(\$cx, '$helperName', $params, \$in)";*/
         }
 
         throw new \Exception('Sub-expression must be a helper call');

@@ -25,6 +25,15 @@ final class Runtime
     }
 
     /**
+     * Invoke $v if it is callable, passing any extra args; otherwise return $v as-is.
+     * Used for data variables that may hold functions (e.g. {{@hello}} or {{@hello "arg"}}).
+     */
+    public static function dv(mixed $v, mixed ...$args): mixed
+    {
+        return is_callable($v) ? $v(...$args) : $v;
+    }
+
+    /**
      * For {{log}}.
      * @param array<mixed> $v
      */
@@ -473,7 +482,15 @@ final class Runtime
             data: $data,
         );
 
-        return static::exch($cx, $ch, $vars, $options);
+        $result = static::exch($cx, $ch, $vars, $options);
+
+        // If the helper returned a string, it managed its own rendering (called options.fn())
+        if (is_string($result) || $result instanceof SafeString) {
+            return $result;
+        }
+
+        // Otherwise apply blockHelperMissing semantics: use the return value as the block context
+        return static::sec($cx, $result, null, $_this, false, $cb, $else);
     }
 
     /**
