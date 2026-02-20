@@ -110,7 +110,7 @@ final class Runtime
         }
 
         if (is_array($v)) {
-            if (count(array_diff_key($v, array_keys(array_keys($v)))) > 0) {
+            if (static::isObjectArray($v)) {
                 return '[object Object]';
             } else {
                 $ret = '';
@@ -152,8 +152,8 @@ final class Runtime
         // #var, detect input type is object or not
         if (!$loop && $isAry) {
             $keys = array_keys($v);
-            $loop = (count(array_diff_key($v, array_keys($keys))) == 0);
-            $isObj = !$loop;
+            $isObj = static::isObjectArray($v);
+            $loop = !$isObj;
         }
 
         if (($loop && $isAry) || $isTrav) {
@@ -161,7 +161,7 @@ final class Runtime
                 // Detect input type is object or not when never done once
                 if ($keys == null) {
                     $keys = array_keys($v);
-                    $isObj = (count(array_diff_key($v, array_keys($keys))) > 0);
+                    $isObj = static::isObjectArray($v);
                 }
             }
             $ret = [];
@@ -274,9 +274,7 @@ final class Runtime
         if ($v === $in) {
             $ret = $cb($cx, $v);
         } else {
-            $cx->scopes[] = $in;
-            $ret = $cb($cx, $v);
-            array_pop($cx->scopes);
+            $ret = static::withScope($cx, $in, $v, $cb);
         }
 
         $cx->partials = $savedPartials;
@@ -496,9 +494,7 @@ final class Runtime
             if ($context === null || $context === $_this) {
                 $ret = $cb($cx, $_this);
             } else {
-                $cx->scopes[] = $_this;
-                $ret = $cb($cx, $context);
-                array_pop($cx->scopes);
+                $ret = static::withScope($cx, $_this, $context, $cb);
             }
 
             if (isset($data['data'])) {
@@ -518,10 +514,7 @@ final class Runtime
                 if ($context === null) {
                     return $else($cx, $_this);
                 }
-                $cx->scopes[] = $_this;
-                $ret = $else($cx, $context);
-                array_pop($cx->scopes);
-                return $ret;
+                return static::withScope($cx, $_this, $context, $else);
             }
         : fn() => '';
     }
@@ -538,6 +531,22 @@ final class Runtime
 
         // $cb may be null (inverted block with no else clause) after the inversion swap in hbbch
         return static::sec($cx, $result, null, $_this, false, $cb ?? static fn() => '', $else);
+    }
+
+    private static function withScope(RuntimeContext $cx, mixed $scope, mixed $context, \Closure $cb): string
+    {
+        $cx->scopes[] = $scope;
+        $ret = $cb($cx, $context);
+        array_pop($cx->scopes);
+        return $ret;
+    }
+
+    /**
+     * @param array<mixed> $v
+     */
+    private static function isObjectArray(array $v): bool
+    {
+        return count(array_diff_key($v, array_keys(array_keys($v)))) !== 0;
     }
 
     /**

@@ -170,15 +170,13 @@ final class Compiler
                 return $this->compileBlockHelper($block, $literalKey);
             }
 
-            $escapedKey = addcslashes($literalKey, "'\\");
-            $miss = $this->context->options->strict
-                ? "LR::miss('" . addcslashes($literalKey, "'\\") . "')"
-                : 'null';
+            $escapedKey = $this->escape($literalKey);
+            $miss = $this->missValue($literalKey);
             $var = "\$in['$escapedKey'] ?? $miss";
 
             if ($block->program === null) {
                 // Inverted section: {{^"foo"}}...{{/"foo"}}
-                $body = $block->inverse ? $this->compileProgram($block->inverse) : "''";
+                $body = $this->compileProgramOrEmpty($block->inverse);
                 return "'.((" . $this->getFuncName('isec', $var) . ")) ? $body : '').'";
             }
 
@@ -240,7 +238,7 @@ final class Compiler
         $var = $this->compileExpression($block->params[0]);
         $includeZero = $this->getIncludeZero($block->hash);
 
-        $then = $block->program ? $this->compileProgram($block->program) : "''";
+        $then = $this->compileProgramOrEmpty($block->program);
 
         if ($block->inverse && $block->inverse->chained) {
             // {{else if ...}} chain — compile the inner block directly
@@ -250,7 +248,7 @@ final class Compiler
             }
             $else = "'" . $elseCode . "'";
         } else {
-            $else = $block->inverse ? $this->compileProgram($block->inverse) : "''";
+            $else = $this->compileProgramOrEmpty($block->inverse);
         }
 
         $negate = $unless ? '!' : '';
@@ -264,8 +262,7 @@ final class Compiler
         }
 
         $var = $this->compileExpression($block->params[0]);
-        $bp = $block->program ? $block->program->blockParams : [];
-        $bs = $bp ? Expression::listString($bp) : 'null';
+        [$bp, $bs] = $this->getProgramBlockParams($block->program);
 
         $body = $block->program ? $this->compileProgramWithBlockParams($block->program, $bp, true) : "''";
         $else = $this->compileElseClause($block);
@@ -280,10 +277,9 @@ final class Compiler
         }
 
         $var = $this->compileExpression($block->params[0]);
-        $bp = $block->program ? $block->program->blockParams : [];
-        $bs = $bp ? Expression::listString($bp) : 'null';
+        [$bp, $bs] = $this->getProgramBlockParams($block->program);
 
-        $body = $block->program ? $this->compileProgram($block->program) : "''";
+        $body = $this->compileProgramOrEmpty($block->program);
         $else = $this->compileElseClause($block);
 
         return "'." . $this->getFuncName('wi', "\$cx, LR::dv($var, \$in), $bs, \$in, function(\$cx, \$in) {return $body;}$else") . ").'";
@@ -293,7 +289,7 @@ final class Compiler
     {
         $var = $this->compileExpression($block->path);
 
-        $body = $block->program ? $this->compileProgram($block->program, true) : "''";
+        $body = $this->compileProgramOrEmpty($block->program, true);
         $else = $this->compileElseClause($block);
 
         return "'." . $this->getFuncName('sec', "\$cx, $var, null, \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ").'";
@@ -302,7 +298,7 @@ final class Compiler
     private function compileInvertedSection(BlockStatement $block): string
     {
         $var = $this->compileExpression($block->path);
-        $body = $block->inverse ? $this->compileProgram($block->inverse) : "''";
+        $body = $this->compileProgramOrEmpty($block->inverse);
 
         return "'.((" . $this->getFuncName('isec', $var) . ")) ? $body : '').'";
     }
@@ -321,7 +317,7 @@ final class Compiler
         $params = $this->compileParams($block->params, $block->hash, $bp ?: null);
 
         if ($inverted) {
-            $body = $block->inverse ? $this->compileProgram($block->inverse) : "''";
+            $body = $this->compileProgramOrEmpty($block->inverse);
             return "'." . $this->getFuncName('hbbch', "\$cx, '$helperName', $params, \$in, true, function(\$cx, \$in) {return $body;}") . ").'";
         }
 
@@ -347,13 +343,13 @@ final class Compiler
             $partialName = $this->getLiteralKeyName($firstArg);
         }
 
-        $body = $block->program ? $this->compileProgram($block->program, true) : "''";
+        $body = $this->compileProgramOrEmpty($block->program, true);
 
         // Register in usedPartial so {{> partialName}} can compile without error.
         // Do NOT add to partialCode - `in()` handles runtime registration, keeping inline partials block-scoped.
         $this->context->usedPartial[$partialName] = '';
 
-        return "'." . $this->getFuncName('in', "\$cx, '" . addcslashes($partialName, "'\\") . "', function(\$cx, \$in, \$sp) {return $body;}") . ").'";
+        return "'." . $this->getFuncName('in', "\$cx, '" . $this->escape($partialName) . "', function(\$cx, \$in, \$sp) {return $body;}") . ").'";
     }
 
     private function Decorator(Decorator $decorator): never
@@ -366,25 +362,21 @@ final class Compiler
         $name = $statement->name;
 
         if ($name instanceof PathExpression) {
-            $p = "'" . addcslashes($name->original, "'\\") . "'";
+            $p = "'" . $this->escape($name->original) . "'";
             $this->resolveAndCompilePartial($name->original);
         } elseif ($name instanceof SubExpression) {
             $p = $this->SubExpression($name);
             $this->context->usedDynPartial++;
-        } elseif ($name instanceof NumberLiteral) {
-            $literalName = (string) $name->value;
-            $p = "'" . addcslashes($literalName, "'\\") . "'";
-            $this->resolveAndCompilePartial($literalName);
-        } elseif ($name instanceof StringLiteral) {
-            $literalName = $name->value;
-            $p = "'" . addcslashes($literalName, "'\\") . "'";
+        } elseif ($name instanceof NumberLiteral || $name instanceof StringLiteral) {
+            $literalName = $this->getLiteralKeyName($name);
+            $p = "'" . $this->escape($literalName) . "'";
             $this->resolveAndCompilePartial($literalName);
         } else {
             $p = $this->compileExpression($name);
         }
 
         $vars = $this->compilePartialParams($statement->params, $statement->hash);
-        $indent = addcslashes($statement->indent, "'\\");
+        $indent = $this->escape($statement->indent);
 
         // When preventIndent is set, emit the indent as literal content (like handlebars.js
         // appendContent opcode) and invoke the partial with an empty indent so its lines are
@@ -418,10 +410,10 @@ final class Compiler
 
         if ($name instanceof PathExpression) {
             $partialName = $name->original;
-            $p = "'" . addcslashes($partialName, "'\\") . "'";
+            $p = "'" . $this->escape($partialName) . "'";
         } elseif ($name instanceof StringLiteral || $name instanceof NumberLiteral) {
-            $partialName = $name instanceof StringLiteral ? $name->value : (string) $name->value;
-            $p = "'" . addcslashes($partialName, "'\\") . "'";
+            $partialName = $this->getLiteralKeyName($name);
+            $p = "'" . $this->escape($partialName) . "'";
         } else {
             $p = $this->compileExpression($name);
             $partialName = null;
@@ -509,7 +501,7 @@ final class Compiler
 
         if ($this->resolveHelper($literalKey)) {
             $params = $this->compileParams($mustache->params, $mustache->hash);
-            $escapedKey = addcslashes($literalKey, "'\\");
+            $escapedKey = $this->escape($literalKey);
             $call = "LR::hbch(\$cx, '$escapedKey', $params, \$in)";
             return "'." . $this->getFuncName($fn, $call) . ").'";
         }
@@ -518,17 +510,15 @@ final class Compiler
             throw new \Exception('Missing helper: "' . $literalKey . '"');
         }
 
-        $escapedKey = addcslashes($literalKey, "'\\");
-        $miss = $this->context->options->strict
-            ? "LR::miss('" . addcslashes($literalKey, "'\\") . "')"
-            : 'null';
+        $escapedKey = $this->escape($literalKey);
+        $miss = $this->missValue($literalKey);
         $val = "\$in['$escapedKey'] ?? $miss";
         return "'." . $this->getFuncName($fn, $val) . ").'";
     }
 
     private function ContentStatement(ContentStatement $statement): string
     {
-        return addcslashes($statement->value, "'\\");
+        return $this->escape($statement->value);
     }
 
     private function CommentStatement(CommentStatement $statement): string
@@ -552,7 +542,7 @@ final class Compiler
         // Registered helper
         if ($helperName !== null && $this->resolveHelper($helperName)) {
             $params = $this->compileParams($expression->params, $expression->hash);
-            $escapedName = addcslashes($helperName, "'\\");
+            $escapedName = $this->escape($helperName);
             return "LR::hbch(\$cx, '$escapedName', $params, \$in)";
         }
 
@@ -577,16 +567,14 @@ final class Compiler
         $base = $this->buildBasePath($data, $depth);
 
         // Filter out SubExpression parts for string-only operations
-        $stringParts = array_values(array_filter($parts, fn($p) => is_string($p)));
+        $stringParts = self::stringPartsOf($parts);
 
         // `this` with no parts or empty parts
         if (($expression->this_ && !$parts) || !$stringParts) {
             return $base;
         }
 
-        $miss = $this->context->options->strict
-            ? "LR::miss('" . addcslashes($expression->original, "'\\") . "')"
-            : 'null';
+        $miss = $this->missValue($expression->original);
 
         // @partial-block as variable: truthy when an active partial block exists
         if ($data && $depth === 0 && count($stringParts) === 1 && $stringParts[0] === 'partial-block') {
@@ -597,7 +585,7 @@ final class Compiler
         if (!$data && $depth === 0 && !self::scopedId($expression)) {
             $bpIdx = $this->lookupBlockParam($stringParts[0]);
             if ($bpIdx !== null) {
-                $escapedName = addcslashes($stringParts[0], "'\\");
+                $escapedName = $this->escape($stringParts[0]);
                 $bpBase = "\$cx->blParam[$bpIdx]['$escapedName']";
                 $remaining = $this->buildKeyAccess(array_slice($stringParts, 1));
                 return "$bpBase$remaining ?? $miss";
@@ -638,7 +626,7 @@ final class Compiler
 
     private function StringLiteral(StringLiteral $literal): string
     {
-        return "'" . addcslashes($literal->value, "'\\") . "'";
+        return "'" . $this->escape($literal->value) . "'";
     }
 
     private function NumberLiteral(NumberLiteral $literal): string
@@ -700,7 +688,7 @@ final class Compiler
     {
         $pairs = [];
         foreach ($hash->pairs as $pair) {
-            $key = addcslashes($pair->key, "'\\");
+            $key = $this->escape($pair->key);
             $value = $this->compileExpression($pair->value);
             $pairs[] = "'$key'=>$value";
         }
@@ -905,7 +893,7 @@ final class Compiler
     {
         $n = '';
         foreach ($parts as $part) {
-            $n .= "['" . addcslashes($part, "'\\") . "']";
+            $n .= "['" . $this->escape($part) . "']";
         }
         return $n;
     }
@@ -921,6 +909,41 @@ final class Compiler
         }
 
         return "LR::$name($args";
+    }
+
+    private function escape(string $s): string
+    {
+        return addcslashes($s, "'\\");
+    }
+
+    private function missValue(string $key): string
+    {
+        return $this->context->options->strict
+            ? "LR::miss('" . $this->escape($key) . "')"
+            : 'null';
+    }
+
+    /** @return array{list<string>, string} [$bp, $bs] */
+    private function getProgramBlockParams(?Program $program): array
+    {
+        $bp = $program ? $program->blockParams : [];
+        $bs = $bp ? Expression::listString($bp) : 'null';
+        return [$bp, $bs];
+    }
+
+    private function compileProgramOrEmpty(?Program $program, bool $withSp = false): string
+    {
+        return $program ? $this->compileProgram($program, $withSp) : "''";
+    }
+
+    /**
+     * Return only the string parts of a mixed parts array, re-indexed.
+     * @param list<string|SubExpression> $parts
+     * @return list<string>
+     */
+    private static function stringPartsOf(array $parts): array
+    {
+        return array_values(array_filter($parts, fn($p) => is_string($p)));
     }
 
     /**
@@ -977,14 +1000,12 @@ final class Compiler
     {
         $data = $path->data;
         $depth = $path->depth;
-        $parts = array_values(array_filter($path->parts, fn($p) => is_string($p)));
+        $parts = self::stringPartsOf($path->parts);
 
         $base = $this->buildBasePath($data, $depth);
         $n = $this->buildKeyAccess($parts);
 
-        $miss = $this->context->options->strict
-            ? "LR::miss('" . addcslashes($path->original, "'\\") . "')"
-            : 'null';
+        $miss = $this->missValue($path->original);
 
         return $base . $n . "[$lookupCode] ?? $miss";
     }
@@ -1006,7 +1027,7 @@ final class Compiler
             $varCode = $this->compilePathWithLookup($itemsExpr, $idxCode);
         } else {
             $itemsCode = $this->compileExpression($itemsExpr);
-            $miss = $this->context->options->strict ? "LR::miss('lookup')" : 'null';
+            $miss = $this->missValue('lookup');
             $varCode = $itemsCode . "[$idxCode] ?? $miss";
         }
         return $varCode;
