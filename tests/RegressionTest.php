@@ -1357,6 +1357,20 @@ class RegressionTest extends TestCase
             ],
 
             [
+                'id' => 292,
+                'template' => '{ {{#>outer}} {{#>innerBlock}} Hello {{/innerBlock}} {{>simple}} {{/outer}} }',
+                'options' => new Options(
+                    partials: [
+                        'outer' => '( {{#>nested}} « {{>@partial-block}} » {{/nested}} )',
+                        'nested' => '[ {{>@partial-block}} ]',
+                        'innerBlock' => '< {{>@partial-block}} >',
+                        'simple' => 'World!',
+                    ],
+                ),
+                'expected' => '{ ( [  «  <  Hello  > World!  »  ] ) }',
+            ],
+
+            [
                 'id' => 295,
                 'template' => '{{> MyPartial (newObject name="John Doe") message=(echo message=(echo message="Hello World!"))}}',
                 'options' => new Options(

@@ -21,6 +21,5 @@ class RuntimeContext
         public array $spVars = [],
         public array $blParam = [],
         public int $partialId = 0,
-        public int $partialDepth = 0,
     ) {}
 }
