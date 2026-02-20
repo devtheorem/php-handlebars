@@ -260,6 +260,8 @@ final class Runtime
             return $else ? $else($cx, $in) : '';
         }
 
+        $savedPartials = $cx->partials;
+
         if ($v === $in) {
             $ret = $cb($cx, $v);
         } else {
@@ -267,6 +269,8 @@ final class Runtime
             $ret = $cb($cx, $v);
             array_pop($cx->scopes);
         }
+
+        $cx->partials = $savedPartials;
 
         return $ret;
     }
@@ -317,10 +321,6 @@ final class Runtime
         $cx->partialId = ($p === '@partial-block') ? ($pid > 0 ? $pid : ($cx->partialId > 0 ? $cx->partialId - 1 : 0)) : $pid;
         $cx->partialDepth++;
 
-        if ($cx->partialDepth > 100) {
-            throw new \Exception("Runtime: the partial $p could not be found");
-        }
-
         $result = $cx->partials[$pp]($cx, static::merge($v[0][0], $v[1]), '');
 
         if ($indent !== '') {
@@ -347,7 +347,18 @@ final class Runtime
      */
     public static function in(RuntimeContext $cx, string $p, \Closure $code): void
     {
-        $cx->partials[$p] = $code;
+        if (str_starts_with($p, '@partial-block')) {
+            // Capture the outer partialId at registration time so that when this
+            // block closure runs, any {{>@partial-block}} inside it resolves to
+            // the correct outer partial block (not partialId - 1).
+            $outerPartialId = $cx->partialId;
+            $cx->partials[$p] = function (RuntimeContext $cx, mixed $in, string $sp) use ($code, $outerPartialId): string {
+                $cx->partialId = $outerPartialId;
+                return $code($cx, $in, $sp);
+            };
+        } else {
+            $cx->partials[$p] = $code;
+        }
     }
 
     /**
