@@ -95,9 +95,6 @@ class HandlebarsSpecTest extends TestCase
             // partial as function rather than string
             $spec['it'] === 'rendering function partial in vm mode'
 
-            // todo: fix
-            || $spec['description'] === 'helpers - the lookupProperty-option'
-
             // need confirm
             || $spec['it'] === "bug reported by @fat where lambdas weren't being properly resolved"
             || $spec['it'] === 'if with function argument'
