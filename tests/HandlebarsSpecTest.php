@@ -99,8 +99,7 @@ class HandlebarsSpecTest extends TestCase
 
         if (
             // inline partials
-            str_starts_with($spec['it'], 'should render nested inline partials')
-            || $spec['it'] === 'should define inline partials for block' && isset($spec['number'])
+            $spec['it'] === 'should define inline partials for block' && isset($spec['number'])
             || $spec['it'] === 'rendering function partial in vm mode'
 
             // todo: fix

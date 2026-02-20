@@ -347,7 +347,18 @@ final class Runtime
      */
     public static function in(RuntimeContext $cx, string $p, \Closure $code): void
     {
-        $cx->partials[$p] = $code;
+        if (str_starts_with($p, '@partial-block')) {
+            // Capture the outer partialId at registration time so that when this
+            // block closure runs, any {{>@partial-block}} inside it resolves to
+            // the correct outer partial block (not partialId - 1).
+            $outerPartialId = $cx->partialId;
+            $cx->partials[$p] = function (RuntimeContext $cx, mixed $in, string $sp) use ($code, $outerPartialId): string {
+                $cx->partialId = $outerPartialId;
+                return $code($cx, $in, $sp);
+            };
+        } else {
+            $cx->partials[$p] = $code;
+        }
     }
 
     /**
