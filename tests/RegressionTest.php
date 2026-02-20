@@ -1775,6 +1775,25 @@ class RegressionTest extends TestCase
             ],
 
             [
+                // ensure that partial names are correctly escaped
+                'template' => '{{> "foo\button\'"}} {{> "bar\\\link"}}',
+                'options' => new Options(
+                    partials: [
+                        'foo\button\'' => 'Button!',
+                        'bar\\\link' => 'Link!',
+                    ],
+                ),
+                'expected' => 'Button! Link!',
+            ],
+
+            [
+                // ensure that block parameters are correctly escaped
+                'template' => "{{#each items as |[it\\'s] item|}}{{item}}{{/each}}",
+                'data' => ['items' => ['one', 'two']],
+                'expected' => '01',
+            ],
+
+            [
                 'template' => '{{#each .}}->{{>tests/test3}}{{/each}}',
                 'data' => ['a', 'b', 'c'],
                 'options' => new Options(
