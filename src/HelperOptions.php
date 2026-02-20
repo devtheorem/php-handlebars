@@ -27,4 +27,15 @@ class HelperOptions
     {
         return ($this->inverse)(...$args);
     }
+
+    public function lookupProperty(mixed $obj, string $key): mixed
+    {
+        if (is_array($obj)) {
+            return $obj[$key] ?? null;
+        }
+        if (is_object($obj)) {
+            return $obj->$key ?? null;
+        }
+        return null;
+    }
 }
