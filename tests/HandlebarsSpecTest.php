@@ -115,6 +115,9 @@ class HandlebarsSpecTest extends TestCase
         }
 
         // FIX SPEC
+        if ($spec['it'] === 'helper block with complex lookup expression') {
+            $spec['helpers']['goodbyes']['php'] = str_replace('$options->fn();', '$options->fn([]);', $spec['helpers']['goodbyes']['php']);
+        }
         if ($spec['it'] === 'should take presednece over parent block params') {
             $spec['helpers']['goodbyes']['php'] = 'function($options) { static $value; if ($value === null) { $value = 1; } return $options->fn(["value" => "bar"], ["blockParams" => $options->blockParams === 1 ? [$value++, $value++] : null]);}';
         }
@@ -135,16 +138,12 @@ class HandlebarsSpecTest extends TestCase
             $helper = self::patchSafeString(
                 preg_replace('/function/', "function $hname", $func['php'], 1),
             );
-            $helper = str_replace('new \Handlebars\SafeString', 'new \DevTheorem\Handlebars\SafeString', $helper);
             $helper = str_replace('$options[\'data\']', '$options->data', $helper);
             $helper = str_replace('$options[\'hash\']', '$options->hash', $helper);
             $helper = str_replace('$arguments[count($arguments)-1][\'name\'];', '$arguments[count($arguments)-1]->name;', $helper);
-            if (($spec['it'] === 'helper block with complex lookup expression') && ($name === 'goodbyes')) {
-                $helper = str_replace('$options->fn();', '$options->fn([]);', $helper);
-            }
             $helpersList .= "$helper\n";
-            eval($helper);
         }
+        eval($helpersList);
 
         try {
             $partials = [];
@@ -297,6 +296,6 @@ class HandlebarsSpecTest extends TestCase
     private static function patchSafeString(string $code): string
     {
         $classname = '\\DevTheorem\\Handlebars\\SafeString';
-        return preg_replace('/ SafeString(\s*\(.*?\))?/', ' ' . $classname . '$1', $code);
+        return preg_replace('/ (\\\Handlebars\\\)?SafeString(\s*\(.*?\))?/', ' ' . $classname . '$2', $code);
     }
 }
