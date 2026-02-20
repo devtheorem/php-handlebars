@@ -586,6 +586,11 @@ final class Compiler
             ? "LR::miss('" . addcslashes($expression->original, "'\\") . "')"
             : 'null';
 
+        // @partial-block as variable: truthy when an active partial block exists
+        if ($data && $depth === 0 && count($stringParts) === 1 && $stringParts[0] === 'partial-block') {
+            return "isset(\$cx->partials['@partial-block' . \$cx->partialId]) ? true : null";
+        }
+
         // Check block params (depth-0, non-data paths only)
         if (!$data && $depth === 0) {
             $bpIdx = $this->lookupBlockParam($stringParts[0]);
