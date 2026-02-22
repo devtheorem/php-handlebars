@@ -25,6 +25,18 @@ final class Runtime
     }
 
     /**
+     * Strict-mode key lookup: throw if $base is not an array or $key is absent.
+     * Unlike the null-coalescing pattern, this allows null values when the key exists.
+     */
+    public static function strictLookup(mixed $base, string $key, string $original): mixed
+    {
+        if (!is_array($base) || !array_key_exists($key, $base)) {
+            self::miss($original);
+        }
+        return $base[$key];
+    }
+
+    /**
      * Invoke $v if it is callable, passing any extra args; otherwise return $v as-is.
      * Used for data variables that may hold functions (e.g. {{@hello}} or {{@hello "arg"}}).
      */
