@@ -67,7 +67,6 @@ echo $template(['first' => 'John']); // Error: Runtime: last does not exist
 * `ignoreStandalone`: Disables standalone tag removal. When set, blocks and partials that are on their own line will not remove the whitespace on that line.
 * `explicitPartialContext`: Disables implicit context for partials. When enabled, partials that are not passed a context value will execute against an empty object.
 * `helpers`: Provide a key => value array of custom helper functions.
-* `helperResolver`: A closure which will be called for any helper not in the `helpers` array to return a function for it.
 * `partials`: Provide a key => value array of custom partial templates.
 * `partialResolver`: A closure which will be called for any partial not in the `partials` array to return a template for it.
 
@@ -105,6 +104,40 @@ echo $template(['my_var' => 1]); // Not equal
 echo $template(['my_var' => null]); // Not equal
 ```
 
+## Hooks
+
+If a custom helper named `helperMissing` is defined, it will be called when a mustache or a block-statement
+is not a registered helper AND is not a property of the current evaluation context.
+
+If a custom helper named `blockHelperMissing` is defined, it will be called when a block-expression calls
+a helper that is not registered, even when the name matches a property in the current evaluation context.
+
+For example:
+
+```php
+use DevTheorem\Handlebars\{Handlebars, HelperOptions, Options};
+
+$templateStr = '{{foo 2 "value"}}
+{{#person}}{{firstName}} {{lastName}}{{/person}}';
+
+$template = Handlebars::compile($templateStr, new Options(
+    helpers: [
+        'helperMissing' => function (...$args) {
+            $options = array_pop($args);
+            return "Missing {$options->name}(" . implode(',', $args) . ')';
+        },
+        'blockHelperMissing' => function (mixed $context, HelperOptions $options) {
+            return "'{$options->name}' not found. Printing block: {$options->fn($context)}";
+        },
+    ],
+));
+
+echo $template(['person' => ['firstName' => 'John', 'lastName' => 'Doe']]);
+```
+Output:
+> Missing foo(2,value)  
+> 'person' not found. Printing block: John Doe
+
 ## String Escaping
 
 If a custom helper is executed in a `{{ }}` expression, the return value will be HTML escaped.
@@ -114,68 +147,7 @@ Helpers may return a `DevTheorem\Handlebars\SafeString` instance to prevent esca
 When constructing the string that will be marked as safe, any external content should be properly escaped
 using the `Handlebars::escapeExpression()` method to avoid potential security concerns.
 
-## Detailed Feature list
+## Missing features
 
-Go https://handlebarsjs.com/ to see more details about each feature.
-
-* Exact same CR/LF behavior as Handlebars.js
-* Exact same 'true' or 'false' output as Handlebars.js
-* Exact same '[object Object]' output or join(',' array) output as Handlebars.js
-* `{{{value}}}` or `{{&value}}` : raw variable
-* `{{value}}` : HTML escaped variable
-* `{{path.to.value}}` : dot notation
-* `{{.}}` or `{{this}}` : current context
-* `{{#value}}` : section
-   * false, undefined and null will skip the section
-   * true will run the section with original scope
-   * All others will run the section with new scope (includes 0, 1, -1, '', '1', '0', '-1', 'false', Array, ...)
-* `{{/value}}` : end section
-* `{{^value}}` : inverted section
-   * false, undefined and null will run the section with original scope
-   * All others will skip the section (includes 0, 1, -1, '', '1', '0', '-1', 'false', Array, ...)
-* `{{! comment}}` : comment
-* `{{!-- comment {{ or }} --}}` : extended comment that can contain }} or {{ .
-* `{{#each var}}` : each loop
-* `{{#each}}` : each loop on `{{.}}`
-* `{{/each}}` : end loop
-* `{{#each bar as |foo|}}` : echo loop on bar and set the value as foo.
-* `{{#each bar as |foo moo|}}` : echo loop on bar, set the value as foo, set the index as moo.
-* `{{#if var}}` : run if logic with original scope (null, false, empty Array and '' will skip this block)
-* `{{#if foo includeZero=true}}` : result as true when foo === 0
-* `{{/if}}` : end if
-* `{{else}}` or `{{^}}` : run else logic, should between `{{#if var}}` and `{{/if}}` ; or between `{{#unless var}}` and `{{/unless}}`; or between `{{#foo}}` and `{{/foo}}`; or between `{{#each var}}` and `{{/each}}`; or between `{{#with var}}` and `{{/with}}`.
-* `{{#if foo}} ... {{else if bar}} ... {{/if}}` : chained if else blocks
-* `{{#unless var}}` : run unless logic with original scope (null, false, empty Array and '' will render this block)
-* `{{#unless foo}} ... {{else if bar}} ... {{/unless}}` : chained unless else blocks
-* `{{#unless foo}} ... {{else unless bar}} ... {{/unless}}` : chained unless else blocks
-* `{{#foo}} ... {{else bar}} ... {{/foo}}` : custom helper chained else blocks
-* `{{#with var}}` : change context scope. If the var is false or an empty array, skip included section.
-* `{{#with bar as |foo|}}` : change context to bar and set the value as foo.
-* `{{lookup foo bar}}` : lookup foo by value of bar as key.
-* `{{../var}}` : parent template scope.
-* `{{>file}}` : partial; include another template inside a template.
-* `{{>file foo}}` : partial with new context
-* `{{>file foo bar=another}}` : partial with new context which mixed with followed key value
-* `{{>(helper) foo}}` : include dynamic partial by name provided from a helper
-* `{{@index}}` : references to current index in a `{{#each}}` loop on an array.
-* `{{@key}}` : references to current key in a `{{#each}}` loop on an object.
-* `{{@root}}` : references to root context.
-* `{{@first}}` : true when looping at first item.
-* `{{@last}}` : true when looping at last item.
-* `{{@root.path.to.value}}` : references to root context then follow the path.
-* `{{@../index}}` : access to parent loop index.
-* `{{@../key}}` : access to parent loop key.
-* `{{~any_valid_tag}}` : Space control, remove all previous spacing (includes CR/LF, tab, space; stop on any none spacing character)
-* `{{any_valid_tag~}}` : Space control, remove all next spacing (includes CR/LF, tab, space; stop on any none spacing character)
-* `{{{helper var}}}` : Execute custom helper then render the result
-* `{{helper var}}` : Execute custom helper then render the HTML escaped result
-* `{{helper "str"}}` or `{{helper 'str'}}` : Execute custom helper with string arguments
-* `{{helper 123 null true false undefined}}` : Pass number, true, false, null or undefined into helper
-* `{{helper name1=var name2=var2}}` : Execute custom helper with named arguments
-* `{{#helper ...}}...{{/helper}}` : Execute block custom helper
-* `{{helper (helper2 foo) bar}}` : Execute custom helpers as subexpression
-* `{{{{raw_block}}}} {{will_not_parsed}} {{{{/raw_block}}}}` : Raw block
-* `{{#> foo}}block{{/foo}}` : Partial block, provide `foo` partial default content
-* `{{#> @partial-block}}` : access partial block content inside a partial
-* `{{#*inline "partial_name"}}...{{/inline}}` : Inline partial, provide a partial and overwrite the original one.
-* `{{log foo}}` : output value to stderr for debug.
+All syntax from Handlebars.js 4.7.8 should work the same in this implementation, with the following exception:
+* Decorators ([deprecated in Handlebars.js](https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md)) have not been implemented.

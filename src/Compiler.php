@@ -164,6 +164,9 @@ final class Compiler
             }
 
             if ($block->params) {
+                if ($this->resolveHelper('helperMissing')) {
+                    return $this->compileBlockHelper($block, 'helperMissing', $helperName);
+                }
                 throw new \Exception('Missing helper: "' . $helperName . '"');
             }
         }
@@ -202,6 +205,11 @@ final class Compiler
             return $this->compileDynamicBlockHelper($block);
         }
 
+        // Block with hash but no positional params → helperMissing
+        if ($block->hash !== null && $this->resolveHelper('helperMissing')) {
+            return $this->compileBlockHelper($block, 'helperMissing', $block->path->original);
+        }
+
         // Regular section: {{#var}}...{{/var}}
         return $this->compileSection($block);
     }
@@ -222,13 +230,6 @@ final class Compiler
         if (isset($this->context->helpers[$helperName])) {
             $this->context->usedHelpers[$helperName] = true;
             return true;
-        } elseif ($this->context->helperResolver) {
-            $helper = ($this->context->helperResolver)($this->context, $helperName);
-            if ($helper) {
-                $this->context->helpers[$helperName] = $helper;
-                $this->context->usedHelpers[$helperName] = true;
-                return true;
-            }
         }
 
         return false;
@@ -297,9 +298,14 @@ final class Compiler
     private function compileSection(BlockStatement $block): string
     {
         $var = $this->compileExpression($block->path);
+        $escapedName = $block->path instanceof PathExpression ? "'" . self::escape($block->path->original) . "'" : 'null';
 
         $body = $this->compileProgramOrEmpty($block->program, true);
         $else = $this->compileElseClause($block);
+
+        if ($this->resolveHelper('blockHelperMissing')) {
+            return "'." . $this->getFuncName('hbbch', "\$cx, 'blockHelperMissing', [[$var],[]], \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else, $escapedName") . ").'";
+        }
 
         return "'." . $this->getFuncName('sec', "\$cx, $var, null, \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ").'";
     }
@@ -312,28 +318,22 @@ final class Compiler
         return "'.((" . $this->getFuncName('isec', $var) . ")) ? $body : '').'";
     }
 
-    private function compileBlockHelper(BlockStatement $block, string $helperName): string
+    private function compileBlockHelper(BlockStatement $block, string $helperName, ?string $missingName = null): string
     {
-        $inverted = $block->program === null;
-
-        $bp = [];
-        if ($block->program) {
-            $bp = $block->program->blockParams;
-        } elseif ($block->inverse) {
-            $bp = $block->inverse->blockParams;
-        }
-
+        $bp = $block->program->blockParams ?? $block->inverse->blockParams ?? null;
         $params = $this->compileParams($block->params, $block->hash, $bp ?: null);
+        $escapedName = $missingName === null ? 'null' : "'" . self::escape($missingName) . "'";
 
-        if ($inverted) {
+        if ($block->program === null) {
+            // inverted block
             $body = $this->compileProgramOrEmpty($block->inverse);
-            return "'." . $this->getFuncName('hbbch', "\$cx, '$helperName', $params, \$in, true, function(\$cx, \$in) {return $body;}") . ").'";
+            return "'." . $this->getFuncName('hbbch', "\$cx, '$helperName', $params, \$in, true, function(\$cx, \$in) {return $body;}, null, $escapedName") . ").'";
         }
 
         $body = $this->compileProgramWithBlockParams($block->program, $bp);
         $else = $this->compileElseClause($block);
 
-        return "'." . $this->getFuncName('hbbch', "\$cx, '$helperName', $params, \$in, false, function(\$cx, \$in) {return $body;}$else") . ").'";
+        return "'." . $this->getFuncName('hbbch', "\$cx, '$helperName', $params, \$in, false, function(\$cx, \$in) {return $body;}$else, $escapedName") . ").'";
     }
 
     private function DecoratorBlock(BlockStatement $block): string
@@ -490,7 +490,23 @@ final class Compiler
                     $call = 'LR::dv(' . $varPath . ', ' . implode(', ', $args) . ')';
                     return "'." . $this->getFuncName($fn, $call) . ").'";
                 }
+                if (!$this->context->options->strict && $this->resolveHelper('helperMissing')) {
+                    $params = $this->compileParams($mustache->params, $mustache->hash);
+                    $escapedName = self::escape($helperName);
+                    $call = "LR::hbch(\$cx, 'helperMissing', $params, \$in, '$escapedName')";
+                    return "'." . $this->getFuncName($fn, $call) . ").'";
+                }
                 throw new \Exception('Missing helper: "' . $helperName . '"');
+            }
+
+            // Plain variable — if helperMissing is registered, route missing identifiers to it
+            if ($helperName !== null && !$this->context->options->strict && $this->resolveHelper('helperMissing')) {
+                $bpIdx = $this->lookupBlockParam($helperName);
+                if ($bpIdx === null) {
+                    $escapedKey = self::escape($helperName);
+                    $val = "(is_array(\$in) && array_key_exists('$escapedKey', \$in) ? \$in['$escapedKey'] : LR::hbch(\$cx, 'helperMissing', [[],[]], \$in, '$escapedKey'))";
+                    return "'." . $this->getFuncName($fn, $val) . ").'";
+                }
             }
 
             // Plain variable; wrap in dv() to support lambda context values
@@ -868,7 +884,7 @@ final class Compiler
     {
         return $block->inverse
             ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
-            : '';
+            : ', null';
     }
 
     /**

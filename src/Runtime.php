@@ -139,7 +139,7 @@ final class Runtime
     /**
      * For {{#var}} or {{#each}} .
      *
-     * @param array<array<mixed>|string|int>|string|int|bool|null|\Traversable<string, mixed> $v value for the section
+     * @param array<array<mixed>|string|int>|string|int|bool|null|\Closure|\Traversable<string, mixed> $v value for the section
      * @param array<string>|null $bp block parameters
      * @param array<array<mixed>|string|int>|string|int|null $in input data with current scope
      * @param bool $each true when rendering #each
@@ -245,6 +245,33 @@ final class Runtime
                 array_pop($cx->scopes);
             }
             return $ret;
+        }
+
+        if ($v instanceof \Closure) {
+            $options = new HelperOptions(
+                name: '',
+                hash: [],
+                fn: function ($context = null) use ($cx, $in, $cb) {
+                    if ($context === null || $context === $in) {
+                        return $cb($cx, $in);
+                    }
+                    return static::withScope($cx, $in, $context, $cb);
+                },
+                inverse: function ($context = null) use ($cx, $in, $else) {
+                    if ($else === null) {
+                        return '';
+                    }
+                    if ($context === null || $context === $in) {
+                        return $else($cx, $in);
+                    }
+                    return static::withScope($cx, $in, $context, $else);
+                },
+                blockParams: 0,
+                scope: $in,
+                data: $cx->spVars,
+            );
+            $result = $v($options);
+            return static::applyBlockHelperMissing($cx, $result, $in, $cb, $else);
         }
 
         if ($v === true) {
@@ -385,15 +412,16 @@ final class Runtime
      * @param string $ch the name of custom helper to be executed
      * @param array<array<mixed>|string|int> $vars variables for the helper
      * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
+     * @param string|null $logicalName when set, use as options.name instead of $ch
      */
-    public static function hbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this): mixed
+    public static function hbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this, ?string $logicalName = null): mixed
     {
         if (isset($cx->blParam[0][$ch])) {
             return $cx->blParam[0][$ch];
         }
 
         $options = new HelperOptions(
-            name: $ch,
+            name: $logicalName ?? $ch,
             hash: $vars[1],
             fn: fn() => '',
             inverse: fn() => '',
@@ -414,8 +442,9 @@ final class Runtime
      * @param bool $inverted the logic will be inverted
      * @param \Closure|null $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
+     * @param string|null $logicalName when set, use as options.name instead of $ch
      */
-    public static function hbbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this, bool $inverted, ?\Closure $cb, ?\Closure $else = null): mixed
+    public static function hbbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this, bool $inverted, ?\Closure $cb, ?\Closure $else = null, ?string $logicalName = null): mixed
     {
         $blockParams = isset($vars[2]) ? count($vars[2]) : 0;
         $data = &$cx->spVars;
@@ -428,7 +457,7 @@ final class Runtime
         }
 
         $options = new HelperOptions(
-            name: $ch,
+            name: $logicalName ?? $ch,
             hash: $vars[1],
             fn: static::makeBlockFn($cx, $_this, $cb, $vars),
             inverse: static::makeInverseFn($cx, $_this, $else),

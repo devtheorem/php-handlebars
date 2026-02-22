@@ -50,19 +50,7 @@ class HandlebarsSpecTest extends TestCase
             $spec['data'] = new \stdClass();
         }
 
-        // 5. Not supported case: helperMissing and blockHelperMissing
-        if (
-            ($spec['it'] === 'if a context is not found, custom helperMissing is used')
-            || ($spec['it'] === 'if a value is not found, custom helperMissing is used')
-            || ($spec['it'] === 'should include in simple block calls')
-            || ($spec['it'] === 'should include full id')
-            || ($spec['it'] === 'should include full id if a hash is passed')
-            || ($spec['it'] === 'lambdas resolved by blockHelperMissing are bound to the context')
-        ) {
-            $this->markTestIncomplete('Not supported case: just skip it');
-        }
-
-        // 6. Not supported case: misc
+        // 5. Not supported case: misc
         if (
             // compat mode
             $spec['description'] === 'blocks - compat mode'
@@ -114,6 +102,7 @@ class HandlebarsSpecTest extends TestCase
             $helper = self::patchSafeString(
                 preg_replace('/function/', "function $hname", $func['php'], 1),
             );
+            $helper = str_replace('$options[\'name\']', '$options->name', $helper);
             $helper = str_replace('$options[\'data\']', '$options->data', $helper);
             $helper = str_replace('$options[\'hash\']', '$options->hash', $helper);
             $helper = str_replace('$arguments[count($arguments)-1][\'name\'];', '$arguments[count($arguments)-1]->name;', $helper);
