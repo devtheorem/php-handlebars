@@ -883,24 +883,44 @@ class RegressionTest extends TestCase
             ],
 
             [
-                'id' => 201,
-                'template' => '{{foo "world"}}',
+                // based on examples at https://handlebarsjs.com/guide/hooks.html
+                'template' => <<<_hbs
+                    {{foo}}
+                    {{foo "value"}}
+                    {{foo 2 true}}
+                    {{#foo true}}{{/foo}}
+                    {{#foo}}Bar{{/foo}}
+                    {{#person}}{{firstName}} {{lastName}}{{/person}}
+                    _hbs,
+                'data' => ['person' => ['firstName' => 'Yehuda', 'lastName' => 'Katz']],
                 'options' => new Options(
-                    helperResolver: function () {
-                        return fn(string $name) => "Hello, $name";
-                    },
+                    helpers: [
+                        'helperMissing' => function (...$args) {
+                            $options = array_pop($args);
+                            $argVals = array_map(fn($arg) => is_bool($arg) ? ($arg ? 'true' : 'false') : $arg, $args);
+                            return "Missing {$options->name}(" . implode(',', $argVals) . ')';
+                        },
+                        'blockHelperMissing' => function (mixed $context, HelperOptions $options) {
+                            return "Helper '{$options->name}' not found. Printing block: {$options->fn($context)}";
+                        },
+                    ],
                 ),
-                'expected' => 'Hello, world',
+                'expected' => <<<_result
+                    Missing foo()
+                    Missing foo(value)
+                    Missing foo(2,true)
+                    Missing foo(true)
+                    Helper 'foo' not found. Printing block: Bar
+                    Helper 'person' not found. Printing block: Yehuda Katz
+                    _result,
             ],
             [
                 'id' => 201,
                 'template' => '{{#foo "test"}}World{{/foo}}',
                 'options' => new Options(
-                    helperResolver: function (Context $cx, string $name) {
-                        return function ($name, HelperOptions $options) {
-                            return "$name = " . $options->fn();
-                        };
-                    },
+                    helpers: [
+                        'helperMissing' => fn(string $name, HelperOptions $options) => "$name = {$options->fn()}",
+                    ],
                 ),
                 'expected' => 'test = World',
             ],

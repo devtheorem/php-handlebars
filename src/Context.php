@@ -18,7 +18,6 @@ final class Context
      * @param array<mixed> $partialBlock
      * @param array<mixed> $inlinePartial
      * @param array<string, callable> $helpers
-     * @param null|Closure(Context, string):(Closure|null) $helperResolver
      */
     public function __construct(
         public readonly Options $options,
@@ -33,12 +32,10 @@ final class Context
         public array $partialBlock = [],
         public array $inlinePartial = [],
         public array $helpers = [],
-        public ?Closure $helperResolver = null,
     ) {
         $this->partials = $options->partials;
         $this->partialResolver = $options->partialResolver;
         $this->helpers = $options->helpers;
-        $this->helperResolver = $options->helperResolver;
     }
 
     /**
