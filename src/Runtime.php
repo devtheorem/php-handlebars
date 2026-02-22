@@ -8,15 +8,6 @@ namespace DevTheorem\Handlebars;
 final class Runtime
 {
     /**
-     * Output debug info.
-     */
-    public static function debug(string $expression, string $runtimeFn, mixed ...$rest): mixed
-    {
-        $runtime = self::class;
-        return call_user_func_array("$runtime::$runtimeFn", $rest);
-    }
-
-    /**
      * Throw exception for missing expression. Only used in strict mode.
      */
     public static function miss(string $v): void
