@@ -41,9 +41,6 @@ class HandlebarsSpecTest extends TestCase
     #[DataProvider("jsonSpecProvider")]
     public function testSpecs(array $spec): void
     {
-        self::unsetRecursive($spec['data'], '!sparsearray');
-        self::fixDataHelpers($spec);
-
         // Fix {} for these test cases
         if (
             $spec['it'] === 'should override template partials'
@@ -71,22 +68,11 @@ class HandlebarsSpecTest extends TestCase
             $spec['description'] === 'blocks - compat mode'
             || $spec['description'] === 'partials - compat mode'
 
-            // stringParams
+            // stringParams mode was removed from Handlebars in 2015
             || $spec['it'] === 'in string params mode,'
 
             // Decorators are deprecated: https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md
             || $spec['description'] === 'blocks - decorators'
-
-            // strict mode
-            || (
-                $spec['description'] === 'strict - strict mode' && (
-                    str_starts_with($spec['it'], 'should allow undefined ') || $spec['it'] === 'should handle explicit undefined'
-                )
-            )
-            || $spec['description'] === 'strict - assume objects'
-
-            // lambda function in data
-            || $spec['it'] === 'Functions are bound to the context in knownHelpers only mode'
         ) {
             $this->markTestIncomplete('Not supported case: just skip it');
         }
@@ -108,6 +94,12 @@ class HandlebarsSpecTest extends TestCase
         if ($spec['it'] === 'should take presednece over parent block params') {
             $spec['helpers']['goodbyes']['php'] = 'function($options) { static $value; if ($value === null) { $value = 1; } return $options->fn(["value" => "bar"], ["blockParams" => $options->blockParams === 1 ? [$value++, $value++] : null]);}';
         }
+        if ($spec['it'] === 'Functions are bound to the context in knownHelpers only mode') {
+            $spec['data']['foo']['php'] = 'function($options) { return $options->scope[\'bar\']; }';
+        }
+
+        self::unsetRecursive($spec['data'], '!sparsearray');
+        self::addDataHelpers($spec);
 
         // setup helpers
         $this->tested++;
@@ -130,58 +122,22 @@ class HandlebarsSpecTest extends TestCase
         eval($helpersList);
 
         try {
-            $partials = [];
-            $knownHelpersOnly = false;
-            $strict = false;
-            $preventIndent = false;
-            $ignoreStandalone = false;
-            $explicitPartialContext = false;
-
-            // Do not use array_merge() here because it destroys numeric key
-            if (isset($spec['partials'])) {
-                foreach ($spec['partials'] as $k => $v) {
-                    $partials[$k] = $v;
-                }
-            }
-
-            if (isset($spec['compileOptions']['strict'])) {
-                if ($spec['compileOptions']['strict']) {
-                    $strict = true;
-                }
-            }
-
-            if (isset($spec['compileOptions']['preventIndent'])) {
-                if ($spec['compileOptions']['preventIndent']) {
-                    $preventIndent = true;
-                }
-            }
-
-            if (isset($spec['compileOptions']['explicitPartialContext'])) {
-                if ($spec['compileOptions']['explicitPartialContext']) {
-                    $explicitPartialContext = true;
-                }
-            }
-
-            if (isset($spec['compileOptions']['ignoreStandalone'])) {
-                if ($spec['compileOptions']['ignoreStandalone']) {
-                    $ignoreStandalone = true;
-                }
-            }
-
-            if (isset($spec['compileOptions']['knownHelpersOnly'])) {
-                if ($spec['compileOptions']['knownHelpersOnly']) {
-                    $knownHelpersOnly = true;
-                }
-            }
+            $knownHelpersOnly = $spec['compileOptions']['knownHelpersOnly'] ?? false;
+            $strict = $spec['compileOptions']['strict'] ?? false;
+            $assumeObjects = $spec['compileOptions']['assumeObjects'] ?? false;
+            $preventIndent = $spec['compileOptions']['preventIndent'] ?? false;
+            $ignoreStandalone = $spec['compileOptions']['ignoreStandalone'] ?? false;
+            $explicitPartialContext = $spec['compileOptions']['explicitPartialContext'] ?? false;
 
             $php = Handlebars::precompile($spec['template'], new Options(
                 knownHelpersOnly: $knownHelpersOnly,
                 strict: $strict,
+                assumeObjects: $assumeObjects,
                 preventIndent: $preventIndent,
                 ignoreStandalone: $ignoreStandalone,
                 explicitPartialContext: $explicitPartialContext,
                 helpers: $helpers,
-                partials: $partials,
+                partials: $spec['partials'] ?? [],
             ));
         } catch (\Exception $e) {
             if (isset($spec['exception'])) {
@@ -265,7 +221,7 @@ class HandlebarsSpecTest extends TestCase
     /**
      * @param JsonSpec $spec
      */
-    private static function fixDataHelpers(array &$spec): void
+    private static function addDataHelpers(array &$spec): void
     {
         if (isset($spec['data']) && is_array($spec['data'])) {
             foreach ($spec['data'] as $key => &$value) {

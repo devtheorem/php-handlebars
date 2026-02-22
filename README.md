@@ -55,13 +55,14 @@ $template = Handlebars::compile('Hi {{first}} {{last}}!', new Options(
     strict: true,
 ));
 
-echo $template(['first' => 'John']); // Error: Runtime: [last] does not exist
+echo $template(['first' => 'John']); // Error: Runtime: last does not exist
 ```
 
 **Available Options:**
 * `knownHelpersOnly`: Enable to allow further optimizations based on the known helpers list.
 * `noEscape`: Enable to not HTML escape any content.
 * `strict`: Run in strict mode. In this mode, templates will throw rather than silently ignore missing fields.
+* `assumeObjects`: Removes object existence checks when traversing paths. This is a subset of strict mode that generates optimized templates when the data inputs are known to be safe.
 * `preventIndent`: Prevent indented partial-call from indenting the entire partial output by the same amount.
 * `ignoreStandalone`: Disables standalone tag removal. When set, blocks and partials that are on their own line will not remove the whitespace on that line.
 * `explicitPartialContext`: Disables implicit context for partials. When enabled, partials that are not passed a context value will execute against an empty object.

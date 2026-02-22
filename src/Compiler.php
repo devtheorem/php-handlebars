@@ -37,6 +37,12 @@ final class Compiler
      */
     private array $blockParamValues = [];
 
+    /**
+     * True while compiling helper params/hash values.
+     * In strict mode, helper arguments may be undefined without throwing.
+     */
+    private bool $compilingHelperArgs = false;
+
     public function __construct(
         private readonly Parser $parser,
     ) {}
@@ -235,8 +241,11 @@ final class Compiler
             throw new \Exception("$helper requires exactly one argument");
         }
 
+        $savedHelperArgs = $this->compilingHelperArgs;
+        $this->compilingHelperArgs = true;
         $var = $this->compileExpression($block->params[0]);
         $includeZero = $this->getIncludeZero($block->hash);
+        $this->compilingHelperArgs = $savedHelperArgs;
 
         $then = $this->compileProgramOrEmpty($block->program);
 
@@ -614,6 +623,27 @@ final class Compiler
             return "$base$n ?? $lenStart$miss$lenEnd";
         }
 
+        if ($this->context->options->assumeObjects) {
+            $missCode = "LR::miss('" . self::escape($expression->original) . "')";
+            $conditions = ["isset($base)"];
+            $intermediateAccess = '';
+            foreach (array_slice($stringParts, 0, -1) as $part) {
+                $intermediateAccess .= "['" . self::escape($part) . "']";
+                $conditions[] = "isset($base$intermediateAccess)";
+            }
+            $allConds = implode(' && ', $conditions);
+            return "($allConds ? ($base$n ?? null) : $missCode)";
+        }
+
+        if ($this->context->options->strict && !$this->compilingHelperArgs) {
+            $escapedOriginal = self::escape($expression->original);
+            $expr = $base;
+            foreach ($stringParts as $part) {
+                $expr = "LR::strictLookup($expr, '" . self::escape($part) . "', '$escapedOriginal')";
+            }
+            return $expr;
+        }
+
         return "$base$n ?? $miss";
     }
 
@@ -764,12 +794,16 @@ final class Compiler
      */
     private function compileParams(array $params, ?Hash $hash, ?array $blockParams = null): string
     {
+        $savedHelperArgs = $this->compilingHelperArgs;
+        $this->compilingHelperArgs = true;
+
         $positional = [];
         foreach ($params as $param) {
             $positional[] = $this->compileExpression($param);
         }
 
         $named = $hash ? $this->Hash($hash) : '';
+        $this->compilingHelperArgs = $savedHelperArgs;
 
         $bp = $blockParams ? ',' . self::listString($blockParams) : '';
         return '[[' . implode(',', $positional) . '],[' . $named . "]$bp]";
@@ -917,7 +951,7 @@ final class Compiler
 
     private function missValue(string $key): string
     {
-        return $this->context->options->strict
+        return ($this->context->options->strict && !$this->compilingHelperArgs)
             ? "LR::miss('" . self::escape($key) . "')"
             : 'null';
     }
