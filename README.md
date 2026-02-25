@@ -1,15 +1,18 @@
 # PHP Handlebars
 
-A blazing fast, spec-compliant PHP implementation of [Handlebars](https://handlebarsjs.com/).
+A blazing fast, spec-compliant PHP implementation of [Handlebars](https://handlebarsjs.com).
 
-Originally based on [LightnCandy](https://github.com/zordius/lightncandy), but rewritten to focus on
-more robust Handlebars.js compatibility without the need for excessive feature flags.
+Originally based on [LightnCandy](https://github.com/zordius/lightncandy), but rewritten to enable
+full Handlebars.js compatibility without excessive feature flags or performance tradeoffs.
+
+PHP Handlebars parses and compiles large templates up to 40% faster than LightnCandy,
+and produces ~35% smaller runtime code.
 
 ## Features
 
-* Compile templates to pure PHP code.
+* Supports all Handlebars syntax and language features, including expressions, subexpressions, helpers, partials, and hooks.
 * Templates are parsed using [PHP Handlebars Parser](https://github.com/devtheorem/php-handlebars-parser),
-which implements the same lexical analysis and grammar specification as Handlebars.js.
+which implements the same lexical analysis and AST grammar specification as Handlebars.js.
 * Tested against the [Handlebars.js spec](https://github.com/jbboehr/handlebars-spec).
 
 ## Installation

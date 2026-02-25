@@ -3,6 +3,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.0] AST Compiler - 2026-02-25
+### Added
+- Replaced 
+
+
 ## [0.9.9] Stringable Conditions - 2025-10-15
 ### Added
 - Allow `Stringable` variables in `if` statements ([#8](https://github.com/devtheorem/php-handlebars/pull/8)).
@@ -96,6 +101,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[1.0.0]: https://github.com/devtheorem/php-handlebars/compare/v0.9.9...v1.0.0
 [0.9.9]: https://github.com/devtheorem/php-handlebars/compare/v0.9.8...v0.9.9
 [0.9.8]: https://github.com/devtheorem/php-handlebars/compare/v0.9.7...v0.9.8
 [0.9.7]: https://github.com/devtheorem/php-handlebars/compare/v0.9.6...v0.9.7
