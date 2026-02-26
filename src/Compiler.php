@@ -89,10 +89,7 @@ final class Compiler
                 \$cx = new RuntimeContext(
                     helpers: isset(\$options['helpers']) ? array_merge(\$helpers, \$options['helpers']) : \$helpers,
                     partials: isset(\$options['partials']) ? array_merge(\$partials, \$options['partials']) : \$partials,
-                    scopes: [],
-                    spVars: isset(\$options['data']) ? array_merge(['root' => \$in], \$options['data']) : ['root' => \$in],
-                    blParam: [],
-                    partialId: 0,
+                    data: isset(\$options['data']) ? array_merge(['root' => \$in], \$options['data']) : ['root' => \$in],
                 );
                 return '$code';
             };
@@ -904,7 +901,7 @@ final class Compiler
      */
     private function buildBasePath(bool $data, int $depth): string
     {
-        $base = $data ? '$cx->spVars' : '$in';
+        $base = $data ? '$cx->data' : '$in';
         if ($depth > 0) {
             $base = $data
                 ? $base . str_repeat("['_parent']", $depth)
