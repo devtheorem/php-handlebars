@@ -61,18 +61,11 @@ class HandlebarsSpecTest extends TestCase
 
             // Decorators are deprecated: https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md
             || $spec['description'] === 'blocks - decorators'
-        ) {
-            $this->markTestIncomplete('Not supported case: just skip it');
-        }
 
-        if (
-            // partial as function rather than string
-            $spec['it'] === 'rendering function partial in vm mode'
-
-            // todo: fix
+            // this method may be useful in JS, but not in PHP
             || $spec['description'] === 'helpers - the lookupProperty-option'
         ) {
-            $this->markTestIncomplete('TODO: require fix');
+            $this->markTestIncomplete('Not supported case: just skip it');
         }
 
         // FIX SPEC
@@ -110,6 +103,17 @@ class HandlebarsSpecTest extends TestCase
         }
         eval($helpersList);
 
+        // Convert "!code" partials (callable PHP strings) into actual callables.
+        $partials = [];
+        $stringPartials = [];
+        foreach ($spec['partials'] as $name => $partial) {
+            if (is_array($partial) && isset($partial['!code'], $partial['php'])) {
+                $partials[$name] = eval('return ' . $partial['php'] . ';');
+            } else {
+                $stringPartials[$name] = $partial;
+            }
+        }
+
         try {
             $knownHelpersOnly = $spec['compileOptions']['knownHelpersOnly'] ?? false;
             $strict = $spec['compileOptions']['strict'] ?? false;
@@ -127,7 +131,7 @@ class HandlebarsSpecTest extends TestCase
                 explicitPartialContext: $explicitPartialContext,
                 /** @phpstan-ignore argument.type */
                 helpers: $helpers,
-                partials: $spec['partials'],
+                partials: $stringPartials,
             ));
         } catch (\Exception $e) {
             if (isset($spec['exception'])) {
@@ -139,7 +143,9 @@ class HandlebarsSpecTest extends TestCase
         $renderer = Handlebars::template($php);
 
         try {
-            $ropt = [];
+            $ropt = [
+                'partials' => $partials,
+            ];
             if (is_array($spec['runtimeOptions']['data'] ?? null)) {
                 $ropt['data'] = [];
                 foreach ($spec['runtimeOptions']['data'] as $key => $value) {

@@ -40,6 +40,42 @@ class RegressionTest extends TestCase
         ini_restore('error_log');
     }
 
+    public function testRuntimePartials(): void
+    {
+        // testcase from https://github.com/zordius/lightncandy/issues/292
+        $templateString = '{{#>outer}} {{#>compiledBlock}} inner compiledBlock {{/compiledBlock}} {{>normalTemplate}} {{/outer}}';
+
+        $template = Handlebars::compile($templateString, new Options(
+            partials: [
+                'outer' => 'outer+{{#>nested}}~{{>@partial-block}}~{{/nested}}+outer-end',
+                'nested' => 'nested={{>@partial-block}}=nested-end',
+            ],
+        ));
+
+        $result = $template(null, [
+            'partials' => [
+                'compiledBlock' => Handlebars::compile('compiledBlock !!! {{>@partial-block}} !!! compiledBlock'),
+                'normalTemplate' => Handlebars::compile('normalTemplate'),
+            ],
+        ]);
+
+        $this->assertSame('outer+nested=~ compiledBlock !!!  inner compiledBlock  !!! compiledBlock normalTemplate ~=nested-end+outer-end', $result);
+
+        // testcase from https://github.com/zordius/lightncandy/issues/341
+        $templateString = '{{#> MyPartial child}}This <b>text</b> was sent from the template to the partial.{{/MyPartial}}';
+        $partialTemplateString = '{{name}} says: “{{> @partial-block }}”';
+        $template = Handlebars::compile($templateString);
+        $context = ['child' => ['name' => 'Jason']];
+
+        $result = $template($context, [
+            'partials' => [
+                'MyPartial' => Handlebars::compile($partialTemplateString),
+            ],
+        ]);
+
+        $this->assertSame('Jason says: “This <b>text</b> was sent from the template to the partial.”', $result);
+    }
+
     /**
      * @param RegIssue $issue
      */
