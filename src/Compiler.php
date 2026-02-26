@@ -86,10 +86,15 @@ final class Compiler
             return function (mixed \$in = null, array \$options = []) {
                 \$helpers = $helpers;
                 \$partials = [$partials];
+                \$partials = array_replace(\$partials, \$options['_partials'] ?? []);
+                foreach (\$options['partials'] ?? [] as \$name => \$p) {
+                    \$partials[\$name] = fn(RuntimeContext \$cx, mixed \$in) => \$p(\$in, ['_partials' => \$cx->partials, 'helpers' => \$cx->helpers, 'partialId' => \$cx->partialId]);
+                }
                 \$cx = new RuntimeContext(
                     helpers: isset(\$options['helpers']) ? array_merge(\$helpers, \$options['helpers']) : \$helpers,
-                    partials: isset(\$options['partials']) ? array_merge(\$partials, \$options['partials']) : \$partials,
+                    partials: \$partials,
                     data: isset(\$options['data']) ? array_merge(['root' => \$in], \$options['data']) : ['root' => \$in],
+                    partialId: \$options['partialId'] ?? 0,
                 );
                 \$in = &\$cx->data['root'];
                 return '$code';
@@ -97,10 +102,9 @@ final class Compiler
             VAREND;
     }
 
-    private function compileProgram(Program $program, bool $withSp = false): string
+    private function compileProgram(Program $program): string
     {
-        $quoted = "'" . $this->compileBody($program) . "'";
-        return $withSp ? "\$sp.$quoted" : $quoted;
+        return "'" . $this->compileBody($program) . "'";
     }
 
     private function accept(Node $node): string
@@ -184,9 +188,9 @@ final class Compiler
             }
 
             // Regular section: {{#"foo"}}...{{/"foo"}}
-            $body = $this->compileProgram($block->program, true);
+            $body = $this->compileProgram($block->program);
             $else = $this->compileElseClause($block);
-            return "'." . self::getRuntimeFunc('sec', "\$cx, $var, [], \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ".'";
+            return "'." . self::getRuntimeFunc('sec', "\$cx, $var, [], \$in, false, function(\$cx, \$in) {return $body;}$else") . ".'";
         }
 
         // Inverted section: {{^var}}...{{/var}}
@@ -272,11 +276,11 @@ final class Compiler
         $var = $this->compileExpression($block->params[0]);
         [$bp, $bs] = $this->getProgramBlockParams($block->program);
 
-        $body = $block->program ? $this->compileProgramWithBlockParams($block->program, $bp, true) : "''";
+        $body = $block->program ? $this->compileProgramWithBlockParams($block->program, $bp) : "''";
         $else = $this->compileElseClause($block);
 
         $dv = self::getRuntimeFunc('dv', "$var, \$in");
-        return "'." . self::getRuntimeFunc('sec', "\$cx, $dv, $bs, \$in, true, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ".'";
+        return "'." . self::getRuntimeFunc('sec', "\$cx, $dv, $bs, \$in, true, function(\$cx, \$in) {return $body;}$else") . ".'";
     }
 
     private function compileWith(BlockStatement $block): string
@@ -300,14 +304,14 @@ final class Compiler
         $var = $this->compileExpression($block->path);
         $escapedName = $block->path instanceof PathExpression ? self::quote($block->path->original) : 'null';
 
-        $body = $this->compileProgramOrEmpty($block->program, true);
+        $body = $this->compileProgramOrEmpty($block->program);
         $else = $this->compileElseClause($block);
 
         if ($this->resolveHelper('blockHelperMissing')) {
-            return "'." . self::getRuntimeFunc('hbbch', "\$cx, 'blockHelperMissing', [[$var],[]], \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else, $escapedName") . ".'";
+            return "'." . self::getRuntimeFunc('hbbch', "\$cx, 'blockHelperMissing', [[$var],[]], \$in, false, function(\$cx, \$in) {return $body;}$else, $escapedName") . ".'";
         }
 
-        return "'." . self::getRuntimeFunc('sec', "\$cx, $var, [], \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ".'";
+        return "'." . self::getRuntimeFunc('sec', "\$cx, $var, [], \$in, false, function(\$cx, \$in) {return $body;}$else") . ".'";
     }
 
     private function compileInvertedSection(BlockStatement $block): string
@@ -352,13 +356,13 @@ final class Compiler
             $partialName = $this->getLiteralKeyName($firstArg);
         }
 
-        $body = $this->compileProgramOrEmpty($block->program, true);
+        $body = $this->compileProgramOrEmpty($block->program);
 
         // Register in usedPartial so {{> partialName}} can compile without error.
         // Do NOT add to partialCode - `in()` handles runtime registration, keeping inline partials block-scoped.
         $this->context->usedPartial[$partialName] = '';
 
-        return "'." . self::getRuntimeFunc('in', "\$cx, " . self::quote($partialName) . ", function(\$cx, \$in, \$sp) {return $body;}") . ".'";
+        return "'." . self::getRuntimeFunc('in', "\$cx, " . self::quote($partialName) . ", function(\$cx, \$in) {return $body;}") . ".'";
     }
 
     private function Decorator(Decorator $decorator): never
@@ -413,7 +417,7 @@ final class Compiler
         }
 
         $name = $statement->name;
-        $body = $this->compileProgram($statement->program, true);
+        $body = $this->compileProgram($statement->program);
 
         if ($name instanceof PathExpression) {
             $partialName = $name->original;
@@ -441,19 +445,18 @@ final class Compiler
 
             if (!$found) {
                 // Register fallback body as the partial
-                $func = "function (\$cx, \$in, \$sp) {return $body;}";
+                $func = "function (\$cx, \$in) {return $body;}";
                 $this->context->usedPartial[$partialName] = '';
                 $this->context->partialCode[$partialName] = self::quote($partialName) . " => $func";
             }
         }
 
         $vars = $this->compilePartialParams($statement->params, $statement->hash);
-        $sp = "''";
 
         return $hoisted
             . "'."
-            . self::getRuntimeFunc('in', "\$cx, '@partial-block$pid', function(\$cx, \$in, \$sp) {return $body;}") . "."
-            . self::getRuntimeFunc('p', "\$cx, $p, $vars, $pid, $sp") . ".'";
+            . self::getRuntimeFunc('in', "\$cx, '@partial-block$pid', function(\$cx, \$in) {return $body;}") . "."
+            . self::getRuntimeFunc('p', "\$cx, $p, $vars, $pid, ''") . ".'";
     }
 
     private function MustacheStatement(MustacheStatement $mustache): string
@@ -751,7 +754,8 @@ final class Compiler
             return;
         }
 
-        throw new \Exception("The partial $name could not be found");
+        // Partial not found at compile time; will be resolved at runtime.
+        $this->context->usedPartial[$name] = '';
     }
 
     /**
@@ -785,7 +789,7 @@ final class Compiler
         $code = (new Compiler($this->parser))->compile($program, $tmpContext);
         $this->context->merge($tmpContext);
 
-        $func = "function (\$cx, \$in, \$sp) {return '$code';}";
+        $func = "function (\$cx, \$in) {return '$code';}";
         $this->context->partialCode[$name] = self::quote($name) . " => $func";
     }
 
@@ -885,12 +889,12 @@ final class Compiler
      * Compile a block program, pushing/popping block params around the compilation.
      * @param string[] $bp
      */
-    private function compileProgramWithBlockParams(Program $program, array $bp, bool $withSp = false): string
+    private function compileProgramWithBlockParams(Program $program, array $bp): string
     {
         if ($bp) {
             array_unshift($this->blockParamValues, $bp);
         }
-        $body = $this->compileProgram($program, $withSp);
+        $body = $this->compileProgram($program);
         if ($bp) {
             array_shift($this->blockParamValues);
         }
@@ -967,9 +971,9 @@ final class Compiler
         return [$bp, $bs];
     }
 
-    private function compileProgramOrEmpty(?Program $program, bool $withSp = false): string
+    private function compileProgramOrEmpty(?Program $program): string
     {
-        return $program ? $this->compileProgram($program, $withSp) : "''";
+        return $program ? $this->compileProgram($program) : "''";
     }
 
     /**

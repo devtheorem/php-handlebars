@@ -36,6 +36,10 @@ class ErrorTest extends TestCase
     {
         return [
             [
+                'template' => '{{>not_found}}',
+                'expected' => "The partial not_found could not be found",
+            ],
+            [
                 'template' => "{{#> testPartial}}\n  {{#> innerPartial}}\n   {{> @partial-block}}\n  {{/innerPartial}}\n{{/testPartial}}",
                 'options' => new Options(
                     partials: [
@@ -43,11 +47,11 @@ class ErrorTest extends TestCase
                         'innerPartial' => 'innerPartial -> {{> @partial-block}} <-',
                     ],
                 ),
-                'expected' => "Runtime: the partial @partial-block could not be found",
+                'expected' => "The partial @partial-block could not be found",
             ],
             [
                 'template' => '{{> @partial-block}}',
-                'expected' => "Runtime: the partial @partial-block could not be found",
+                'expected' => "The partial @partial-block could not be found",
             ],
             [
                 'template' => '{{foo.bar}}',
@@ -156,10 +160,6 @@ class ErrorTest extends TestCase
             [
                 'template' => '{{#test foo}}{{/test}}',
                 'expected' => 'Missing helper: "test"',
-            ],
-            [
-                'template' => '{{>not_found}}',
-                'expected' => "The partial not_found could not be found",
             ],
             [
                 'template' => '{{test_join (foo bar)}}',

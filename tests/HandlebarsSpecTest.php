@@ -65,13 +65,6 @@ class HandlebarsSpecTest extends TestCase
             $this->markTestIncomplete('Not supported case: just skip it');
         }
 
-        if (
-            // partial as function rather than string
-            $spec['it'] === 'rendering function partial in vm mode'
-        ) {
-            $this->markTestIncomplete('TODO: require fix');
-        }
-
         // FIX SPEC
         if ($spec['it'] === 'helper block with complex lookup expression' && isset($spec['helpers']['goodbyes']['php'])) {
             $spec['helpers']['goodbyes']['php'] = str_replace('$options->fn();', '$options->fn([]);', $spec['helpers']['goodbyes']['php']);
@@ -107,6 +100,17 @@ class HandlebarsSpecTest extends TestCase
         }
         eval($helpersList);
 
+        // Convert "!code" partials (callable PHP strings) into actual callables.
+        $partials = [];
+        $stringPartials = [];
+        foreach ($spec['partials'] as $name => $partial) {
+            if (is_array($partial) && isset($partial['!code'], $partial['php'])) {
+                $partials[$name] = eval('return ' . $partial['php'] . ';');
+            } else {
+                $stringPartials[$name] = $partial;
+            }
+        }
+
         try {
             $knownHelpersOnly = $spec['compileOptions']['knownHelpersOnly'] ?? false;
             $strict = $spec['compileOptions']['strict'] ?? false;
@@ -124,7 +128,7 @@ class HandlebarsSpecTest extends TestCase
                 explicitPartialContext: $explicitPartialContext,
                 /** @phpstan-ignore argument.type */
                 helpers: $helpers,
-                partials: $spec['partials'],
+                partials: $stringPartials,
             ));
         } catch (\Exception $e) {
             if (isset($spec['exception'])) {
@@ -136,7 +140,9 @@ class HandlebarsSpecTest extends TestCase
         $renderer = Handlebars::template($php);
 
         try {
-            $ropt = [];
+            $ropt = [
+                'partials' => $partials,
+            ];
             if (is_array($spec['runtimeOptions']['data'] ?? null)) {
                 $ropt['data'] = [];
                 foreach ($spec['runtimeOptions']['data'] as $key => $value) {
