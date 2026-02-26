@@ -14,7 +14,7 @@ final class Runtime
      */
     public static function miss(string $v): void
     {
-        throw new \Exception("Runtime: $v does not exist");
+        throw new \Exception('"' . $v . '" not defined');
     }
 
     /**
@@ -159,14 +159,14 @@ final class Runtime
                 $cx->scopes[] = $in;
             }
             $i = 0;
-            $oldSpvar = $cx->spVars ?? [];
-            $cx->spVars = array_merge(['root' => $oldSpvar['root'] ?? null], $oldSpvar, ['_parent' => $oldSpvar]);
+            $oldData = $cx->data ?? [];
+            $cx->data = array_merge(['root' => $oldData['root'] ?? null], $oldData, ['_parent' => $oldData]);
 
             foreach ($v as $index => $raw) {
-                $cx->spVars['first'] = ($i === 0);
-                $cx->spVars['last'] = ($i === $last);
-                $cx->spVars['key'] = $index;
-                $cx->spVars['index'] = $isSparseArray ? $index : $i;
+                $cx->data['first'] = ($i === 0);
+                $cx->data['last'] = ($i === $last);
+                $cx->data['key'] = $index;
+                $cx->data['index'] = $isSparseArray ? $index : $i;
                 $i++;
                 if ($bp) {
                     $bpEntry = [];
@@ -187,11 +187,11 @@ final class Runtime
             }
 
             if ($isObj) {
-                unset($cx->spVars['key']);
+                unset($cx->data['key']);
             } else {
-                unset($cx->spVars['last']);
+                unset($cx->data['last']);
             }
-            unset($cx->spVars['index'], $cx->spVars['first']);
+            unset($cx->data['index'], $cx->data['first']);
 
             if ($push) {
                 array_pop($cx->scopes);
@@ -235,7 +235,7 @@ final class Runtime
                 },
                 blockParams: 0,
                 scope: $in,
-                data: $cx->spVars,
+                data: $cx->data,
             );
             $result = $v($options);
             return static::applyBlockHelperMissing($cx, $result, $in, $cb, $else);
@@ -389,7 +389,7 @@ final class Runtime
             inverse: fn() => '',
             blockParams: 0,
             scope: $_this,
-            data: $cx->spVars,
+            data: $cx->data,
         );
 
         return static::exch($cx, $ch, $vars, $options);
@@ -409,7 +409,7 @@ final class Runtime
     public static function hbbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this, bool $inverted, \Closure $cb, ?\Closure $else = null, ?string $logicalName = null): mixed
     {
         $blockParams = isset($vars[2]) ? count($vars[2]) : 0;
-        $data = &$cx->spVars;
+        $data = &$cx->data;
 
         // invert the logic
         if ($inverted) {
@@ -445,7 +445,7 @@ final class Runtime
         }
 
         $blockParams = isset($vars[2]) ? count($vars[2]) : 0;
-        $data = &$cx->spVars;
+        $data = &$cx->data;
 
         $options = new HelperOptions(
             name: '',
@@ -470,7 +470,7 @@ final class Runtime
 
     /**
      * Build the $fn closure passed to HelperOptions for block helpers.
-     * Handles spVars updates, block-param injection, and context scope pushing.
+     * Handles private variable updates, block-param injection, and context scope pushing.
      *
      * @param array<array<mixed>> $vars
      */
@@ -482,9 +482,9 @@ final class Runtime
 
         return function ($context = null, $data = null) use ($cx, $_this, $cb, $vars) {
             $cx = clone $cx;
-            $old_spvar = $cx->spVars;
+            $oldData = $cx->data;
             if (isset($data['data'])) {
-                $cx->spVars = array_merge(['root' => $old_spvar['root']], $data['data'], ['_parent' => $old_spvar]);
+                $cx->data = array_merge(['root' => $oldData['root']], $data['data'], ['_parent' => $oldData]);
             }
 
             if (isset($data['blockParams'], $vars[2])) {
@@ -499,7 +499,7 @@ final class Runtime
             }
 
             if (isset($data['data'])) {
-                $cx->spVars = $old_spvar;
+                $cx->data = $oldData;
             }
             return $ret;
         };
@@ -556,7 +556,7 @@ final class Runtime
         try {
             return ($cx->helpers[$ch])(...$args);
         } catch (\Throwable $e) {
-            throw new \Exception("Runtime: call custom helper '$ch' error: " . $e->getMessage());
+            throw new \Exception("Custom helper '$ch' error: " . $e->getMessage());
         }
     }
 }

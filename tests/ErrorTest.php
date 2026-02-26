@@ -50,19 +50,43 @@ class ErrorTest extends TestCase
                 'expected' => "Runtime: the partial @partial-block could not be found",
             ],
             [
+                'template' => '{{foo.bar}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => []],
+                'expected' => '"foo.bar" not defined',
+            ],
+            [
                 'template' => '{{foo}}',
                 'options' => new Options(strict: true),
-                'expected' => 'Runtime: foo does not exist',
+                'expected' => '"foo" not defined',
+            ],
+            [
+                // strict mode should override helperMissing
+                'template' => '{{foo}}',
+                'options' => new Options(
+                    strict: true,
+                    helpers: ['helperMissing' => fn() => 'bad'],
+                ),
+                'expected' => '"foo" not defined',
+            ],
+            [
+                // strict mode should override blockHelperMissing
+                'template' => '{{#foo}}OK{{/foo}}',
+                'options' => new Options(
+                    strict: true,
+                    helpers: ['blockHelperMissing' => fn() => 'bad'],
+                ),
+                'expected' => '"foo" not defined',
             ],
             [
                 'template' => '{{#foo}}OK{{/foo}}',
                 'options' => new Options(strict: true),
-                'expected' => 'Runtime: foo does not exist',
+                'expected' => '"foo" not defined',
             ],
             [
                 'template' => '{{{foo}}}',
                 'options' => new Options(strict: true),
-                'expected' => 'Runtime: foo does not exist',
+                'expected' => '"foo" not defined',
             ],
             [
                 'template' => '{{foo}}',
@@ -73,7 +97,7 @@ class ErrorTest extends TestCase
                         },
                     ],
                 ),
-                'expected' => 'Runtime: call custom helper \'foo\' error: Expect the unexpected',
+                'expected' => 'Custom helper \'foo\' error: Expect the unexpected',
             ],
             // ensure that callable strings in data aren't treated as functions
             [
