@@ -39,7 +39,13 @@
         }
     },
     "scripts": {
+        "check": [
+            "@test",
+            "@analyze",
+            "@cs-check"
+        ],
         "analyze": "phpstan analyze",
+        "cs-check": "php-cs-fixer check -v",
         "cs-fix": "php-cs-fixer fix -v",
         "test": "phpunit tests"
     },
