@@ -1546,6 +1546,24 @@ class RegressionTest extends TestCase
             ],
 
             [
+                'id' => 350,
+                'template' => <<<_hbs
+                    Before: {{var}}
+                    (Setting Variable) {{setvar "var" "Foo"}}
+                    After: {{var}}
+                    _hbs,
+                'data' => ['var' => 'value'],
+                'options' => new Options(
+                    helpers: [
+                        'setvar' => function ($name, $value, HelperOptions $options) {
+                            $options->data['root'][$name] = $value;
+                        },
+                    ],
+                ),
+                'expected' => "Before: value\n(Setting Variable) \nAfter: Foo",
+            ],
+
+            [
                 'id' => 357,
                 'template' => '{{echo (echo "foobar(moo).")}}',
                 'options' => new Options(
