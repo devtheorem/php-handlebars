@@ -91,6 +91,7 @@ final class Compiler
                     partials: isset(\$options['partials']) ? array_merge(\$partials, \$options['partials']) : \$partials,
                     data: isset(\$options['data']) ? array_merge(['root' => \$in], \$options['data']) : ['root' => \$in],
                 );
+                \$in = &\$cx->data['root'];
                 return '$code';
             };
             VAREND;
