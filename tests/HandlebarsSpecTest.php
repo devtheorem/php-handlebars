@@ -25,7 +25,7 @@ class Utils
 
 /**
  * @phpstan-type JsonSpec array{
- *     file: string, no: int, message: string|null, data: null|int|bool|string|array<mixed>,
+ *     file: string, no: int, message: string|null, data: null|int|bool|string|array<mixed>|stdClass,
  *     it: string, description: string, expected: string|null, helpers: array<mixed>,
  *     partials: array<mixed>, compileOptions: array<mixed>, template: string,
  *     exception: string|null, runtimeOptions: array<mixed>, number: string|null,
@@ -33,8 +33,6 @@ class Utils
  */
 class HandlebarsSpecTest extends TestCase
 {
-    private int $tested = 0;
-
     /**
      * @param JsonSpec $spec
      */
@@ -64,44 +62,35 @@ class HandlebarsSpecTest extends TestCase
 
             // this method may be useful in JS, but not in PHP
             || $spec['description'] === 'helpers - the lookupProperty-option'
+
+            // PHP doesn't have the same concept of sparse arrays as JS, so there's no need to skip over holes.
+            || $spec['it'] === 'GH-1065: Sparse arrays'
         ) {
             $this->markTestIncomplete('Not supported case: just skip it');
         }
 
         // FIX SPEC
-        if ($spec['it'] === 'helper block with complex lookup expression' && isset($spec['helpers']['goodbyes']['php'])) {
-            $spec['helpers']['goodbyes']['php'] = str_replace('$options->fn();', '$options->fn([]);', $spec['helpers']['goodbyes']['php']);
-        }
         if ($spec['it'] === 'should take presednece over parent block params') {
-            $spec['helpers']['goodbyes']['php'] = 'function($options) { static $value; if ($value === null) { $value = 1; } return $options->fn(["value" => "bar"], ["blockParams" => $options->blockParams === 1 ? [$value++, $value++] : null]);}';
+            $spec['helpers']['goodbyes']['php'] = str_replace('static $value = 0;', 'static $value = 1;', $spec['helpers']['goodbyes']['php']);
         }
-        if ($spec['it'] === 'Functions are bound to the context in knownHelpers only mode' && is_array($spec['data'])) {
-            $spec['data']['foo']['php'] = 'function($options) { return $options->scope[\'bar\']; }';
-        }
-
-        self::unsetRecursive($spec['data'], '!sparsearray');
         self::addDataHelpers($spec);
 
         // setup helpers
-        $this->tested++;
         $helpers = [];
-        $helpersList = '';
+        $helpersList = '[';
         foreach ($spec['helpers'] as $name => $func) {
             if (!isset($func['php'])) {
-                $this->markTestIncomplete("Skip [{$spec['file']}#{$spec['description']}]#{$spec['no']} , no PHP helper code provided for this case.");
+                $this->markTestIncomplete("No PHP helper code provided for [{$spec['file']}#{$spec['description']}]#{$spec['no']}");
             }
-            $helperName = preg_replace('/[.\\/]/', '_', "custom_helper_{$spec['no']}_{$this->tested}_$name");
-            $helpers[$name] = $helperName;
-            $helper = self::patchSafeString(
-                preg_replace('/function/', "function $helperName", $func['php'], 1),
-            );
+            $helper = self::patchSafeString($func['php']);
             $helper = str_replace('$options[\'name\']', '$options->name', $helper);
             $helper = str_replace('$options[\'data\']', '$options->data', $helper);
             $helper = str_replace('$options[\'hash\']', '$options->hash', $helper);
             $helper = str_replace('$arguments[count($arguments)-1][\'name\'];', '$arguments[count($arguments)-1]->name;', $helper);
-            $helpersList .= "$helper\n";
+            $helpersList .= "\n  '$name' => $helper,\n";
+            eval('$helpers[\'' . $name . '\'] = ' . $helper . ';');
         }
-        eval($helpersList);
+        $helpersList .= ']';
 
         // Convert "!code" partials (callable PHP strings) into actual callables.
         $partials = [];
@@ -123,14 +112,13 @@ class HandlebarsSpecTest extends TestCase
             $explicitPartialContext = $spec['compileOptions']['explicitPartialContext'] ?? false;
 
             $php = Handlebars::precompile($spec['template'], new Options(
+                knownHelpers: $spec['compileOptions']['knownHelpers'] ?? [],
                 knownHelpersOnly: $knownHelpersOnly,
                 strict: $strict,
                 assumeObjects: $assumeObjects,
                 preventIndent: $preventIndent,
                 ignoreStandalone: $ignoreStandalone,
                 explicitPartialContext: $explicitPartialContext,
-                /** @phpstan-ignore argument.type */
-                helpers: $helpers,
                 partials: $stringPartials,
             ));
         } catch (\Exception $e) {
@@ -144,6 +132,7 @@ class HandlebarsSpecTest extends TestCase
 
         try {
             $ropt = [
+                'helpers' => $helpers,
                 'partials' => $partials,
             ];
             if (is_array($spec['runtimeOptions']['data'] ?? null)) {
@@ -177,7 +166,7 @@ class HandlebarsSpecTest extends TestCase
      */
     private static function getSpecDetails(array $spec, string $code, string $helpers): string
     {
-        return "{$spec['file']}#{$spec['description']}]#{$spec['no']}:{$spec['it']}\nHelpers:\n$helpers\nPHP code:\n$code";
+        return "{$spec['file']}#{$spec['description']}]#{$spec['no']}:{$spec['it']}\nHelpers: $helpers\nPHP code:\n$code";
     }
 
     /**
@@ -261,21 +250,6 @@ class HandlebarsSpecTest extends TestCase
                 eval('$value = ' . $value['php'] . ';');
             } else {
                 self::evalNestedCode($value);
-            }
-        }
-    }
-
-    private static function unsetRecursive(mixed &$array, string $unwanted_key): void
-    {
-        if (!is_array($array)) {
-            return;
-        }
-        if (isset($array[$unwanted_key])) {
-            unset($array[$unwanted_key]);
-        }
-        foreach ($array as &$value) {
-            if (is_array($value)) {
-                self::unsetRecursive($value, $unwanted_key);
             }
         }
     }
