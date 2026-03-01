@@ -10,7 +10,10 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * @phpstan-type RegIssue array{id?: int, template: string, data?: array<mixed>, options?: Options, expected: string}
+ * @phpstan-type RegIssue array{
+ *     id?: int, template: string, data?: array<mixed>, options?: Options,
+ *     helpers?: array<string, \Closure>, expected: string,
+ * }
  */
 class RegressionTest extends TestCase
 {
@@ -75,6 +78,26 @@ class RegressionTest extends TestCase
         $this->assertSame('Jason says: “This <b>text</b> was sent from the template to the partial.”', $result);
     }
 
+    public function testRuntimeHelpers(): void
+    {
+        $templateString = '{{test "Hello"}}';
+        $template = Handlebars::compile($templateString);
+
+        $data = [
+            'test' => fn(string $arg) => "$arg runtime data",
+        ];
+        $result = $template($data);
+        $this->assertSame('Hello runtime data', $result);
+
+        // runtime helpers option overrides functions in data
+        $result = $template($data, [
+            'helpers' => [
+                'test' => fn(string $arg) => "$arg runtime option",
+            ],
+        ]);
+        $this->assertSame('Hello runtime option', $result);
+    }
+
     /**
      * @param RegIssue $issue
      */
@@ -85,7 +108,9 @@ class RegressionTest extends TestCase
 
         try {
             $template = Handlebars::template($templateSpec);
-            $result = $template($issue['data'] ?? null);
+            $result = $template($issue['data'] ?? null, [
+                'helpers' => $issue['helpers'] ?? [],
+            ]);
         } catch (\Throwable $e) {
             $this->fail("Error: {$e->getMessage()}\nPHP code:\n$templateSpec");
         }
@@ -169,9 +194,7 @@ class RegressionTest extends TestCase
                         {{/if}}
                     {{/ifEquals}}
                     _hbs,
-                'options' => new Options(
-                    helpers: ['ifEquals' => $equals],
-                ),
+                'helpers' => ['ifEquals' => $equals],
                 'data' => ['item' => 'buzz'],
                 'expected' => "            buzzy\n",
             ],
@@ -196,13 +219,11 @@ class RegressionTest extends TestCase
             [
                 'id' => 44,
                 'template' => '<div class="terms-text"> {{render "artists-terms"}} </div>',
-                'options' => new Options(
-                    helpers: [
-                        'render' => function ($view, $data = []) {
-                            return 'OK!';
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'render' => function ($view, $data = []) {
+                        return 'OK!';
+                    },
+                ],
                 'data' => ['tt' => 'bla bla bla'],
                 'expected' => '<div class="terms-text"> OK! </div>',
             ],
@@ -217,35 +238,31 @@ class RegressionTest extends TestCase
             [
                 'id' => 49,
                 'template' => '{{date_format}} 1, {{date_format2}} 2, {{date_format3}} 3, {{date_format4}} 4',
-                'options' => new Options(
-                    helpers: [
-                        'date_format' => function () {
-                            return "OKOK~1";
-                        },
-                        'date_format2' => function () {
-                            return "OKOK~2";
-                        },
-                        'date_format3' => function () {
-                            return "OKOK~3";
-                        },
-                        'date_format4' => function () {
-                            return "OKOK~4";
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'date_format' => function () {
+                        return "OKOK~1";
+                    },
+                    'date_format2' => function () {
+                        return "OKOK~2";
+                    },
+                    'date_format3' => function () {
+                        return "OKOK~3";
+                    },
+                    'date_format4' => function () {
+                        return "OKOK~4";
+                    },
+                ],
                 'expected' => 'OKOK~1 1, OKOK~2 2, OKOK~3 3, OKOK~4 4',
             ],
 
             [
                 'id' => 52,
                 'template' => '{{{test_array tmp}}} should be happy!',
-                'options' => new Options(
-                    helpers: [
-                        'test_array' => function ($input) {
-                            return is_array($input) ? 'IS_ARRAY' : 'NOT_ARRAY';
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'test_array' => function ($input) {
+                        return is_array($input) ? 'IS_ARRAY' : 'NOT_ARRAY';
+                    },
+                ],
                 'data' => ['tmp' => ['A', 'B', 'C']],
                 'expected' => 'IS_ARRAY should be happy!',
             ],
@@ -253,11 +270,9 @@ class RegressionTest extends TestCase
             [
                 'id' => 62,
                 'template' => '{{{test_join @root.foo.bar}}} should be happy!',
-                'options' => new Options(
-                    helpers: [
-                        'test_join' => fn($input) => join('.', $input),
-                    ],
-                ),
+                'helpers' => [
+                    'test_join' => fn($input) => join('.', $input),
+                ],
                 'data' => ['foo' => ['A', 'B', 'bar' => ['C', 'D']]],
                 'expected' => 'C.D should be happy!',
             ],
@@ -302,9 +317,7 @@ class RegressionTest extends TestCase
             [
                 'id' => 68,
                 'template' => '{{#myeach foo}} Test! {{this}} {{/myeach}}',
-                'options' => new Options(
-                    helpers: ['myeach' => $myEach],
-                ),
+                'helpers' => ['myeach' => $myEach],
                 'data' => ['foo' => ['A', 'B', 'bar' => ['C', 'D', 'E']]],
                 'expected' => ' Test! A  Test! B  Test! C,D,E ',
             ],
@@ -330,13 +343,11 @@ class RegressionTest extends TestCase
             [
                 'id' => 85,
                 'template' => '{{helper 1 foo bar="q"}}',
-                'options' => new Options(
-                    helpers: [
-                        'helper' => function ($arg1, $arg2, HelperOptions $options) {
-                            return "ARG1:$arg1, ARG2:$arg2, HASH:{$options->hash['bar']}";
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'helper' => function ($arg1, $arg2, HelperOptions $options) {
+                        return "ARG1:$arg1, ARG2:$arg2, HASH:{$options->hash['bar']}";
+                    },
+                ],
                 'data' => ['foo' => 'BAR'],
                 'expected' => 'ARG1:1, ARG2:BAR, HASH:q',
             ],
@@ -370,13 +381,11 @@ class RegressionTest extends TestCase
             [
                 'id' => 110,
                 'template' => 'ABC{{#block "YES!"}}DEF{{foo}}GHI{{/block}}JKL',
-                'options' => new Options(
-                    helpers: [
-                        'block' => function ($name, HelperOptions $options) {
-                            return "1-$name-2-" . $options->fn() . '-3';
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'block' => function ($name, HelperOptions $options) {
+                        return "1-$name-2-" . $options->fn() . '-3';
+                    },
+                ],
                 'data' => ['foo' => 'bar'],
                 'expected' => 'ABC1-YES!-2-DEFbarGHI-3JKL',
             ],
@@ -395,9 +404,7 @@ class RegressionTest extends TestCase
             [
                 'id' => 114,
                 'template' => '{{^myeach .}}OK:{{.}},{{else}}NOT GOOD{{/myeach}}',
-                'options' => new Options(
-                    helpers: ['myeach' => $myEach],
-                ),
+                'helpers' => ['myeach' => $myEach],
                 'data' => [1, 'foo', 3, 'bar'],
                 'expected' => 'NOT GOODNOT GOODNOT GOODNOT GOOD',
             ],
@@ -405,31 +412,29 @@ class RegressionTest extends TestCase
             [
                 'id' => 124,
                 'template' => '{{list foo bar abc=(lt 10 3) def=(lt 3 10)}}',
-                'options' => new Options(
-                    helpers: [
-                        'lt' => function ($a, $b) {
-                            return ($a > $b) ? new SafeString("$a>$b") : '';
-                        },
-                        'list' => function (...$args) {
-                            $out = 'List:';
-                            /** @var HelperOptions $opts */
-                            $opts = array_pop($args);
+                'helpers' => [
+                    'lt' => function ($a, $b) {
+                        return ($a > $b) ? new SafeString("$a>$b") : '';
+                    },
+                    'list' => function (...$args) {
+                        $out = 'List:';
+                        /** @var HelperOptions $opts */
+                        $opts = array_pop($args);
 
-                            foreach ($args as $v) {
-                                if ($v) {
-                                    $out .= ")$v , ";
-                                }
+                        foreach ($args as $v) {
+                            if ($v) {
+                                $out .= ")$v , ";
                             }
+                        }
 
-                            foreach ($opts->hash as $k => $v) {
-                                if ($v) {
-                                    $out .= "]$k=$v , ";
-                                }
+                        foreach ($opts->hash as $k => $v) {
+                            if ($v) {
+                                $out .= "]$k=$v , ";
                             }
-                            return new SafeString($out);
-                        },
-                    ],
-                ),
+                        }
+                        return new SafeString($out);
+                    },
+                ],
                 'data' => ['foo' => 'OK!', 'bar' => 'OK2', 'abc' => false, 'def' => 123],
                 'expected' => 'List:)OK! , )OK2 , ]abc=10>3 , ',
             ],
@@ -437,11 +442,9 @@ class RegressionTest extends TestCase
             [
                 'id' => 124,
                 'template' => '{{#if (equal \'OK\' cde)}}YES!{{/if}}',
-                'options' => new Options(
-                    helpers: [
-                        'equal' => fn($a, $b) => $a === $b,
-                    ],
-                ),
+                'helpers' => [
+                    'equal' => fn($a, $b) => $a === $b,
+                ],
                 'data' => ['cde' => 'OK'],
                 'expected' => 'YES!',
             ],
@@ -449,11 +452,9 @@ class RegressionTest extends TestCase
             [
                 'id' => 124,
                 'template' => '{{#if (equal true (equal \'OK\' cde))}}YES!{{/if}}',
-                'options' => new Options(
-                    helpers: [
-                        'equal' => fn($a, $b) => $a === $b,
-                    ],
-                ),
+                'helpers' => [
+                    'equal' => fn($a, $b) => $a === $b,
+                ],
                 'data' => ['cde' => 'OK'],
                 'expected' => 'YES!',
             ],
@@ -461,11 +462,9 @@ class RegressionTest extends TestCase
             [
                 'id' => 125,
                 'template' => '{{#if (equal true ( equal \'OK\' cde))}}YES!{{/if}}',
-                'options' => new Options(
-                    helpers: [
-                        'equal' => fn($a, $b) => $a === $b,
-                    ],
-                ),
+                'helpers' => [
+                    'equal' => fn($a, $b) => $a === $b,
+                ],
                 'data' => ['cde' => 'OK'],
                 'expected' => 'YES!',
             ],
@@ -473,11 +472,9 @@ class RegressionTest extends TestCase
             [
                 'id' => 125,
                 'template' => '{{#if (equal true (equal \' OK\' cde))}}YES!{{/if}}',
-                'options' => new Options(
-                    helpers: [
-                        'equal' => fn($a, $b) => $a === $b,
-                    ],
-                ),
+                'helpers' => [
+                    'equal' => fn($a, $b) => $a === $b,
+                ],
                 'data' => ['cde' => ' OK'],
                 'expected' => 'YES!',
             ],
@@ -485,11 +482,9 @@ class RegressionTest extends TestCase
             [
                 'id' => 125,
                 'template' => '{{#if (equal true (equal \' ==\' cde))}}YES!{{/if}}',
-                'options' => new Options(
-                    helpers: [
-                        'equal' => fn($a, $b) => $a === $b,
-                    ],
-                ),
+                'helpers' => [
+                    'equal' => fn($a, $b) => $a === $b,
+                ],
                 'data' => ['cde' => ' =='],
                 'expected' => 'YES!',
             ],
@@ -497,11 +492,9 @@ class RegressionTest extends TestCase
             [
                 'id' => 125,
                 'template' => '{{#if (equal true (equal " ==" cde))}}YES!{{/if}}',
-                'options' => new Options(
-                    helpers: [
-                        'equal' => fn($a, $b) => $a === $b,
-                    ],
-                ),
+                'helpers' => [
+                    'equal' => fn($a, $b) => $a === $b,
+                ],
                 'data' => ['cde' => ' =='],
                 'expected' => 'YES!',
             ],
@@ -516,21 +509,19 @@ class RegressionTest extends TestCase
             [
                 'id' => 125,
                 'template' => '{{list [ abc] " xyz" \' def\' "==" \'==\' "OK"}}',
-                'options' => new Options(
-                    helpers: [
-                        'list' => function ($a, $b) {
-                            $out = 'List:';
-                            $args = func_get_args();
-                            array_pop($args);
-                            foreach ($args as $v) {
-                                if ($v) {
-                                    $out .= ")$v , ";
-                                }
+                'helpers' => [
+                    'list' => function ($a, $b) {
+                        $out = 'List:';
+                        $args = func_get_args();
+                        array_pop($args);
+                        foreach ($args as $v) {
+                            if ($v) {
+                                $out .= ")$v , ";
                             }
-                            return $out;
-                        },
-                    ],
-                ),
+                        }
+                        return $out;
+                    },
+                ],
                 'data' => [' abc' => 'YES!'],
                 'expected' => 'List:)YES! , ) xyz , ) def , )&#x3D;&#x3D; , )&#x3D;&#x3D; , )OK , ',
             ],
@@ -539,9 +530,7 @@ class RegressionTest extends TestCase
                 'id' => 127,
                 'template' => '{{#each array}}#{{#if true}}{{name}}-{{../name}}-{{../../name}}-{{../../../name}}{{/if}}##{{#myif true}}{{name}}={{../name}}={{../../name}}={{../../../name}}{{/myif}}###{{#mywith true}}{{name}}~{{../name}}~{{../../name}}~{{../../../name}}{{/mywith}}{{/each}}',
                 'data' => ['name' => 'john', 'array' => [1, 2, 3]],
-                'options' => new Options(
-                    helpers: ['myif' => $myIf, 'mywith' => $myWith],
-                ),
+                'helpers' => ['myif' => $myIf, 'mywith' => $myWith],
                 // PENDING ISSUE, check for https://github.com/wycats/handlebars.js/issues/1135
                 // 'expected' => '#--john-##==john=###~~john~#--john-##==john=###~~john~#--john-##==john=###~~john~',
                 'expected' => '#-john--##=john==###~~john~#-john--##=john==###~~john~#-john--##=john==###~~john~',
@@ -558,16 +547,14 @@ class RegressionTest extends TestCase
                 'id' => 132,
                 'template' => '{{list (keys .)}}',
                 'data' => ['foo' => 'bar', 'test' => 'ok'],
-                'options' => new Options(
-                    helpers: [
-                        'keys' => function ($arg) {
-                            return array_keys($arg);
-                        },
-                        'list' => function ($arg) {
-                            return join(',', $arg);
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'keys' => function ($arg) {
+                        return array_keys($arg);
+                    },
+                    'list' => function ($arg) {
+                        return join(',', $arg);
+                    },
+                ],
                 'expected' => 'foo,test',
             ],
 
@@ -575,16 +562,14 @@ class RegressionTest extends TestCase
                 'id' => 133,
                 'template' => "{{list (keys\n .\n ) \n}}",
                 'data' => ['foo' => 'bar', 'test' => 'ok'],
-                'options' => new Options(
-                    helpers: [
-                        'keys' => function ($arg) {
-                            return array_keys($arg);
-                        },
-                        'list' => function ($arg) {
-                            return join(',', $arg);
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'keys' => function ($arg) {
+                        return array_keys($arg);
+                    },
+                    'list' => function ($arg) {
+                        return join(',', $arg);
+                    },
+                ],
                 'expected' => 'foo,test',
             ],
 
@@ -592,11 +577,9 @@ class RegressionTest extends TestCase
                 'id' => 133,
                 'template' => "{{list\n .\n \n \n}}",
                 'data' => ['foo', 'bar', 'test'],
-                'options' => new Options(
-                    helpers: [
-                        'list' => fn($arg) => join(',', $arg),
-                    ],
-                ),
+                'helpers' => [
+                    'list' => fn($arg) => join(',', $arg),
+                ],
                 'expected' => 'foo,bar,test',
             ],
 
@@ -604,12 +587,10 @@ class RegressionTest extends TestCase
                 'id' => 134,
                 'template' => "{{#if 1}}{{list (keys names)}}{{/if}}",
                 'data' => ['names' => ['foo' => 'bar', 'test' => 'ok']],
-                'options' => new Options(
-                    helpers: [
-                        'keys' => fn($arg) => array_keys($arg),
-                        'list' => fn($arg) => join(',', $arg),
-                    ],
-                ),
+                'helpers' => [
+                    'keys' => fn($arg) => array_keys($arg),
+                    'list' => fn($arg) => join(',', $arg),
+                ],
                 'expected' => 'foo,test',
             ],
 
@@ -617,11 +598,9 @@ class RegressionTest extends TestCase
                 'id' => 138,
                 'template' => "{{#each (keys .)}}={{.}}{{/each}}",
                 'data' => ['foo' => 'bar', 'test' => 'ok', 'Haha'],
-                'options' => new Options(
-                    helpers: [
-                        'keys' => fn($arg) => array_keys($arg),
-                    ],
-                ),
+                'helpers' => [
+                    'keys' => fn($arg) => array_keys($arg),
+                ],
                 'expected' => '=foo=test=0',
             ],
 
@@ -629,11 +608,9 @@ class RegressionTest extends TestCase
                 'id' => 140,
                 'template' => "{{[a.good.helper] .}}",
                 'data' => ['ha', 'hey', 'ho'],
-                'options' => new Options(
-                    helpers: [
-                        'a.good.helper' => fn($arg) => join(',', $arg),
-                    ],
-                ),
+                'helpers' => [
+                    'a.good.helper' => fn($arg) => join(',', $arg),
+                ],
                 'expected' => 'ha,hey,ho',
             ],
 
@@ -641,13 +618,11 @@ class RegressionTest extends TestCase
                 'id' => 141,
                 'template' => "{{#with foo}}{{#getThis bar}}{{/getThis}}{{/with}}",
                 'data' => ['foo' => ['bar' => 'Good!']],
-                'options' => new Options(
-                    helpers: [
-                        'getThis' => function ($input, HelperOptions $options) {
-                            return $input . '-' . $options->scope['bar'];
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'getThis' => function ($input, HelperOptions $options) {
+                        return $input . '-' . $options->scope['bar'];
+                    },
+                ],
                 'expected' => 'Good!-Good!',
             ],
 
@@ -655,13 +630,11 @@ class RegressionTest extends TestCase
                 'id' => 141,
                 'template' => "{{#with foo}}{{getThis bar}}{{/with}}",
                 'data' => ['foo' => ['bar' => 'Good!']],
-                'options' => new Options(
-                    helpers: [
-                        'getThis' => function ($input, HelperOptions $options) {
-                            return $input . '-' . $options->scope['bar'];
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'getThis' => function ($input, HelperOptions $options) {
+                        return $input . '-' . $options->scope['bar'];
+                    },
+                ],
                 'expected' => 'Good!-Good!',
             ],
 
@@ -669,13 +642,11 @@ class RegressionTest extends TestCase
                 'id' => 143,
                 'template' => "{{testString foo bar=\" \"}}",
                 'data' => ['foo' => 'good!'],
-                'options' => new Options(
-                    helpers: [
-                        'testString' => function ($arg, HelperOptions $options) {
-                            return $arg . '-' . $options->hash['bar'];
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'testString' => function ($arg, HelperOptions $options) {
+                        return $arg . '-' . $options->hash['bar'];
+                    },
+                ],
                 'expected' => 'good!- ',
             ],
 
@@ -683,13 +654,11 @@ class RegressionTest extends TestCase
                 'id' => 143,
                 'template' => "{{testString foo bar=\"\"}}",
                 'data' => ['foo' => 'good!'],
-                'options' => new Options(
-                    helpers: [
-                        'testString' => function ($arg, HelperOptions $options) {
-                            return $arg . '-' . $options->hash['bar'];
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'testString' => function ($arg, HelperOptions $options) {
+                        return $arg . '-' . $options->hash['bar'];
+                    },
+                ],
                 'expected' => 'good!-',
             ],
 
@@ -697,13 +666,11 @@ class RegressionTest extends TestCase
                 'id' => 143,
                 'template' => "{{testString foo bar=' '}}",
                 'data' => ['foo' => 'good!'],
-                'options' => new Options(
-                    helpers: [
-                        'testString' => function ($arg, HelperOptions $options) {
-                            return $arg . '-' . $options->hash['bar'];
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'testString' => function ($arg, HelperOptions $options) {
+                        return $arg . '-' . $options->hash['bar'];
+                    },
+                ],
                 'expected' => 'good!- ',
             ],
 
@@ -711,13 +678,11 @@ class RegressionTest extends TestCase
                 'id' => 143,
                 'template' => "{{testString foo bar=''}}",
                 'data' => ['foo' => 'good!'],
-                'options' => new Options(
-                    helpers: [
-                        'testString' => function ($arg, HelperOptions $options) {
-                            return $arg . '-' . $options->hash['bar'];
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'testString' => function ($arg, HelperOptions $options) {
+                        return $arg . '-' . $options->hash['bar'];
+                    },
+                ],
                 'expected' => 'good!-',
             ],
 
@@ -725,13 +690,11 @@ class RegressionTest extends TestCase
                 'id' => 143,
                 'template' => "{{testString foo bar=\" \"}}",
                 'data' => ['foo' => 'good!'],
-                'options' => new Options(
-                    helpers: [
-                        'testString' => function ($arg1, HelperOptions $options) {
-                            return $arg1 . '-' . $options->hash['bar'];
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'testString' => function ($arg1, HelperOptions $options) {
+                        return $arg1 . '-' . $options->hash['bar'];
+                    },
+                ],
                 'expected' => 'good!- ',
             ],
 
@@ -748,22 +711,18 @@ class RegressionTest extends TestCase
             [
                 'id' => 153,
                 'template' => '{{echo "test[]"}}',
-                'options' => new Options(
-                    helpers: [
-                        'echo' => fn($in) => "-$in-",
-                    ],
-                ),
+                'helpers' => [
+                    'echo' => fn($in) => "-$in-",
+                ],
                 'expected' => "-test[]-",
             ],
 
             [
                 'id' => 153,
                 'template' => '{{echo \'test[]\'}}',
-                'options' => new Options(
-                    helpers: [
-                        'echo' => fn($in) => "-$in-",
-                    ],
-                ),
+                'helpers' => [
+                    'echo' => fn($in) => "-$in-",
+                ],
                 'expected' => "-test[]-",
             ],
 
@@ -776,13 +735,11 @@ class RegressionTest extends TestCase
             [
                 'id' => 157,
                 'template' => '{{{du_mp text=(du_mp "123")}}}',
-                'options' => new Options(
-                    helpers: [
-                        'du_mp' => function (HelperOptions|string $a) {
-                            return '>' . print_r($a->hash ?? $a, true);
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'du_mp' => function (HelperOptions|string $a) {
+                        return '>' . print_r($a->hash ?? $a, true);
+                    },
+                ],
                 'expected' => <<<VAREND
                     >Array
                     (
@@ -820,6 +777,19 @@ class RegressionTest extends TestCase
                 'expected' => "false",
             ],
 
+            // non-empty list in a section with {{else}} must iterate, not show the else branch
+            [
+                'template' => '{{#items}}{{.}},{{else}}empty{{/items}}',
+                'data' => ['items' => ['a', 'b', 'c']],
+                'expected' => 'a,b,c,',
+            ],
+            // same for non-empty ArrayObject
+            [
+                'template' => '{{#.}}{{@index}}:{{.}},{{else}}empty{{/.}}',
+                'data' => new \ArrayObject(['x', 'y']),
+                'expected' => '0:x,1:y,',
+            ],
+
             [
                 'id' => 169,
                 'template' => '{{{{a}}}}true{{else}}false{{{{/a}}}}',
@@ -831,19 +801,17 @@ class RegressionTest extends TestCase
                 'id' => 171,
                 'template' => '{{#my_private_each .}}{{@index}}:{{.}},{{/my_private_each}}',
                 'data' => ['a', 'b', 'c'],
-                'options' => new Options(
-                    helpers: [
-                        'my_private_each' => function ($context, HelperOptions $options) {
-                            $data = $options->data;
-                            $out = '';
-                            foreach ($context as $idx => $cx) {
-                                $data['index'] = $idx;
-                                $out .= $options->fn($cx, ['data' => $data]);
-                            }
-                            return $out;
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'my_private_each' => function ($context, HelperOptions $options) {
+                        $data = $options->data;
+                        $out = '';
+                        foreach ($context as $idx => $cx) {
+                            $data['index'] = $idx;
+                            $out .= $options->fn($cx, ['data' => $data]);
+                        }
+                        return $out;
+                    },
+                ],
                 'expected' => '0:a,1:b,2:c,',
             ],
 
@@ -875,11 +843,9 @@ class RegressionTest extends TestCase
                 'id' => 177,
                 'template' => '{{{{a}}}} {{{{b}}}} {{{{/b}}}} {{{{/a}}}}',
                 'data' => ['a' => true],
-                'options' => new Options(
-                    helpers: [
-                        'a' => fn(HelperOptions $options) => $options->fn(),
-                    ],
-                ),
+                'helpers' => [
+                    'a' => fn(HelperOptions $options) => $options->fn(),
+                ],
                 'expected' => ' {{{{b}}}} {{{{/b}}}} ',
             ],
 
@@ -932,18 +898,16 @@ class RegressionTest extends TestCase
                     {{#person}}{{firstName}} {{lastName}}{{/person}}
                     _hbs,
                 'data' => ['person' => ['firstName' => 'Yehuda', 'lastName' => 'Katz']],
-                'options' => new Options(
-                    helpers: [
-                        'helperMissing' => function (...$args) {
-                            $options = array_pop($args);
-                            $argVals = array_map(fn($arg) => is_bool($arg) ? ($arg ? 'true' : 'false') : $arg, $args);
-                            return "Missing {$options->name}(" . implode(',', $argVals) . ')';
-                        },
-                        'blockHelperMissing' => function (mixed $context, HelperOptions $options) {
-                            return "Helper '{$options->name}' not found. Printing block: {$options->fn($context)}";
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'helperMissing' => function (...$args) {
+                        $options = array_pop($args);
+                        $argVals = array_map(fn($arg) => is_bool($arg) ? ($arg ? 'true' : 'false') : $arg, $args);
+                        return "Missing {$options->name}(" . implode(',', $argVals) . ')';
+                    },
+                    'blockHelperMissing' => function (mixed $context, HelperOptions $options) {
+                        return "Helper '{$options->name}' not found. Printing block: {$options->fn($context)}";
+                    },
+                ],
                 'expected' => <<<_result
                     Missing foo()
                     Missing foo(value)
@@ -956,11 +920,9 @@ class RegressionTest extends TestCase
             [
                 'id' => 201,
                 'template' => '{{#foo "test"}}World{{/foo}}',
-                'options' => new Options(
-                    helpers: [
-                        'helperMissing' => fn(string $name, HelperOptions $options) => "$name = {$options->fn()}",
-                    ],
-                ),
+                'helpers' => [
+                    'helperMissing' => fn(string $name, HelperOptions $options) => "$name = {$options->fn()}",
+                ],
                 'expected' => 'test = World',
             ],
 
@@ -987,11 +949,9 @@ class RegressionTest extends TestCase
                 'id' => 213,
                 'template' => '{{#if foo}}foo{{else if bar}}{{#moo moo}}moo{{/moo}}{{/if}}',
                 'data' => ['foo' => true],
-                'options' => new Options(
-                    helpers: [
-                        'moo' => fn($arg1) => $arg1 === null,
-                    ],
-                ),
+                'helpers' => [
+                    'moo' => fn($arg1) => $arg1 === null,
+                ],
                 'expected' => 'foo',
             ],
 
@@ -1012,27 +972,21 @@ class RegressionTest extends TestCase
             [
                 'id' => 221,
                 'template' => 'a{{ouch}}b',
-                'options' => new Options(
-                    helpers: $test_helpers,
-                ),
+                'helpers' => $test_helpers,
                 'expected' => 'aokb',
             ],
 
             [
                 'id' => 221,
                 'template' => 'a{{ouch}}b',
-                'options' => new Options(
-                    helpers: $test_helpers2,
-                ),
+                'helpers' => $test_helpers2,
                 'expected' => 'awa!b',
             ],
 
             [
                 'id' => 221,
                 'template' => 'a{{ouch}}b',
-                'options' => new Options(
-                    helpers: $test_helpers3,
-                ),
+                'helpers' => $test_helpers3,
                 'expected' => 'awa!b',
             ],
 
@@ -1059,11 +1013,9 @@ class RegressionTest extends TestCase
             [
                 'id' => 227,
                 'template' => '{{#if moo}}A{{else if bar}}B{{else foo}}C{{/if}}',
-                'options' => new Options(
-                    helpers: [
-                        'foo' => fn(HelperOptions $options) => $options->fn(),
-                    ],
-                ),
+                'helpers' => [
+                    'foo' => fn(HelperOptions $options) => $options->fn(),
+                ],
                 'expected' => 'C',
             ],
 
@@ -1092,13 +1044,11 @@ class RegressionTest extends TestCase
                 'id' => 233,
                 'template' => '{{#if foo}}FOO{{else}}BAR{{/if}}',
                 'data' => [],
-                'options' => new Options(
-                    helpers: [
-                        'if' => function ($arg, HelperOptions $options) {
-                            return $options->fn();
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'if' => function ($arg, HelperOptions $options) {
+                        return $options->fn();
+                    },
+                ],
                 'expected' => 'FOO',
             ],
 
@@ -1199,11 +1149,9 @@ class RegressionTest extends TestCase
                     'nil',
                     [3, 5],
                 ]],
-                'options' => new Options(
-                    helpers: [
-                        'foo' => fn($arg1) => is_array($arg1) ? 'OK' : 'bad',
-                    ],
-                ),
+                'helpers' => [
+                    'foo' => fn($arg1) => is_array($arg1) ? 'OK' : 'bad',
+                ],
                 'expected' => 'OK',
             ],
 
@@ -1211,11 +1159,9 @@ class RegressionTest extends TestCase
                 'id' => 253,
                 'template' => '{{foo.bar}}',
                 'data' => ['foo' => ['bar' => 'OK!']],
-                'options' => new Options(
-                    helpers: [
-                        'foo' => fn() => 'bad',
-                    ],
-                ),
+                'helpers' => [
+                    'foo' => fn() => 'bad',
+                ],
                 'expected' => 'OK!',
             ],
 
@@ -1242,11 +1188,9 @@ class RegressionTest extends TestCase
             [
                 'id' => 257,
                 'template' => '{{foo a=(foo a=(foo a="ok"))}}',
-                'options' => new Options(
-                    helpers: [
-                        'foo' => fn(HelperOptions $opt) => $opt->hash['a'],
-                    ],
-                ),
+                'helpers' => [
+                    'foo' => fn(HelperOptions $opt) => $opt->hash['a'],
+                ],
                 'expected' => 'ok',
             ],
 
@@ -1267,16 +1211,14 @@ class RegressionTest extends TestCase
             [
                 'id' => 268,
                 'template' => '{{foo}}{{bar}}',
-                'options' => new Options(
-                    helpers: [
-                        'foo' => function (HelperOptions $opt) {
-                            $opt->scope['change'] = true;
-                        },
-                        'bar' => function (HelperOptions $opt) {
-                            return $opt->scope['change'] ? 'ok' : 'bad';
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'foo' => function (HelperOptions $opt) {
+                        $opt->scope['change'] = true;
+                    },
+                    'bar' => function (HelperOptions $opt) {
+                        return $opt->scope['change'] ? 'ok' : 'bad';
+                    },
+                ],
                 'expected' => 'ok',
             ],
 
@@ -1297,23 +1239,19 @@ class RegressionTest extends TestCase
             [
                 'id' => 281,
                 'template' => '{{echo (echo "foo bar (moo).")}}',
-                'options' => new Options(
-                    helpers: [
-                        'echo' => fn($arg1) => "ECHO: $arg1",
-                    ],
-                ),
+                'helpers' => [
+                    'echo' => fn($arg1) => "ECHO: $arg1",
+                ],
                 'expected' => 'ECHO: ECHO: foo bar (moo).',
             ],
 
             [
                 'id' => 281,
                 'template' => "{{test 'foo bar' (toRegex '^(foo|bar|baz)')}}",
-                'options' => new Options(
-                    helpers: [
-                        'toRegex' => fn($regex) => "/$regex/",
-                        'test' => fn(string $str, string $regex) => (bool) preg_match($regex, $str),
-                    ],
-                ),
+                'helpers' => [
+                    'toRegex' => fn($regex) => "/$regex/",
+                    'test' => fn(string $str, string $regex) => (bool) preg_match($regex, $str),
+                ],
                 'expected' => 'true',
             ],
 
@@ -1433,51 +1371,45 @@ class RegressionTest extends TestCase
                 'id' => 295,
                 'template' => '{{> MyPartial (newObject name="John Doe") message=(echo message=(echo message="Hello World!"))}}',
                 'options' => new Options(
-                    helpers: [
-                        'newObject' => fn(HelperOptions $options) => $options->hash,
-                        'echo' => fn(HelperOptions $options) => $options->hash['message'],
-                    ],
                     partials: [
                         'MyPartial' => '{{name}} says: "{{message}}"',
                     ],
                 ),
+                'helpers' => [
+                    'newObject' => fn(HelperOptions $options) => $options->hash,
+                    'echo' => fn(HelperOptions $options) => $options->hash['message'],
+                ],
                 'expected' => 'John Doe says: "Hello World!"',
             ],
 
             [
                 'id' => 297,
                 'template' => '{{test "foo" prop="\" "}}',
-                'options' => new Options(
-                    helpers: [
-                        'test' => function ($arg1, HelperOptions $options) {
-                            return "{$arg1} {$options->hash['prop']}";
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'test' => function ($arg1, HelperOptions $options) {
+                        return "{$arg1} {$options->hash['prop']}";
+                    },
+                ],
                 'expected' => 'foo &quot; ',
             ],
 
             [
                 'id' => 298,
                 'template' => '{{test "\"\"\"" prop="\"\"\""}}',
-                'options' => new Options(
-                    helpers: [
-                        'test' => function ($arg1, HelperOptions $options) {
-                            return "{$arg1} {$options->hash['prop']}";
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'test' => function ($arg1, HelperOptions $options) {
+                        return "{$arg1} {$options->hash['prop']}";
+                    },
+                ],
                 'expected' => '&quot;&quot;&quot; &quot;&quot;&quot;',
             ],
             [
                 'template' => "{{test '\'\'\'' prop='\'\'\''}}",
-                'options' => new Options(
-                    helpers: [
-                        'test' => function ($arg1, HelperOptions $options) {
-                            return "{$arg1} {$options->hash['prop']}";
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'test' => function ($arg1, HelperOptions $options) {
+                        return "{$arg1} {$options->hash['prop']}";
+                    },
+                ],
                 'expected' => '&#x27;&#x27;&#x27; &#x27;&#x27;&#x27;',
             ],
 
@@ -1501,16 +1433,14 @@ class RegressionTest extends TestCase
                       opt_b='bar'
                     )}}...{{/custom-block}}
                     _tpl,
-                'options' => new Options(
-                    helpers: [
-                        'custom-block' => function ($string, HelperOptions $opts) {
-                            return strtoupper($string) . '-' . $opts->hash['data'] . $opts->fn();
-                        },
-                        'custom-helper' => function (HelperOptions $options) {
-                            return $options->hash['opt_a'] . $options->hash['opt_b'];
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'custom-block' => function ($string, HelperOptions $opts) {
+                        return strtoupper($string) . '-' . $opts->hash['data'] . $opts->fn();
+                    },
+                    'custom-helper' => function (HelperOptions $options) {
+                        return $options->hash['opt_a'] . $options->hash['opt_b'];
+                    },
+                ],
                 'expected' => 'SOME-TEXT-foobar...',
             ],
 
@@ -1538,14 +1468,12 @@ class RegressionTest extends TestCase
             [
                 'id' => 315,
                 'template' => '{{#each foo}}#{{@key}}({{@index}})={{.}}-{{moo}}-{{@irr}}{{/each}}',
-                'options' => new Options(
-                    helpers: [
-                        'moo' => function (HelperOptions $opts) {
-                            $opts->data['irr'] = '123';
-                            return '321';
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'moo' => function (HelperOptions $opts) {
+                        $opts->data['irr'] = '123';
+                        return '321';
+                    },
+                ],
                 'data' => [
                     'foo' => [
                         'a' => 'b',
@@ -1588,55 +1516,45 @@ class RegressionTest extends TestCase
                     After: {{var}}
                     _hbs,
                 'data' => ['var' => 'value'],
-                'options' => new Options(
-                    helpers: [
-                        'setvar' => function ($name, $value, HelperOptions $options) {
-                            $options->data['root'][$name] = $value;
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'setvar' => function ($name, $value, HelperOptions $options) {
+                        $options->data['root'][$name] = $value;
+                    },
+                ],
                 'expected' => "Before: value\n(Setting Variable) \nAfter: Foo",
             ],
 
             [
                 'id' => 357,
                 'template' => '{{echo (echo "foobar(moo).")}}',
-                'options' => new Options(
-                    helpers: [
-                        'echo' => fn($arg1) => "ECHO: $arg1",
-                    ],
-                ),
+                'helpers' => [
+                    'echo' => fn($arg1) => "ECHO: $arg1",
+                ],
                 'expected' => 'ECHO: ECHO: foobar(moo).',
             ],
             [
                 'id' => 357,
                 'template' => "{{{debug (debug 'foobar(moo).')}}}",
-                'options' => new Options(
-                    helpers: [
-                        'debug' => fn($arg1) => "ECHO: $arg1",
-                    ],
-                ),
+                'helpers' => [
+                    'debug' => fn($arg1) => "ECHO: $arg1",
+                ],
                 'expected' => 'ECHO: ECHO: foobar(moo).',
             ],
             [
                 'id' => 357,
                 'template' => '{{echo (echo "foobar(moo)." (echo "moobar(foo)"))}}',
-                'options' => new Options(
-                    helpers: [
-                        'echo' => fn($arg1) => "ECHO: $arg1",
-                    ],
-                ),
+                'helpers' => [
+                    'echo' => fn($arg1) => "ECHO: $arg1",
+                ],
                 'expected' => 'ECHO: ECHO: foobar(moo).',
             ],
 
             [
                 'id' => 367,
                 'template' => "{{#each (myfunc 'foo(bar)' ) }}{{.}},{{/each}}",
-                'options' => new Options(
-                    helpers: [
-                        'myfunc' => fn($arg) => explode('(', $arg),
-                    ],
-                ),
+                'helpers' => [
+                    'myfunc' => fn($arg) => explode('(', $arg),
+                ],
                 'expected' => 'foo,bar),',
             ],
 
@@ -1661,22 +1579,20 @@ class RegressionTest extends TestCase
                     Foo {{newContext.a}} {{index}}
                     {{/myeach}}
                     _tpl,
-                'options' => new Options(
-                    helpers: [
-                        'myeach' => function ($context, HelperOptions $options) {
-                            $theArray = json_decode($context, true);
-                            if (!is_array($theArray)) {
-                                return '';
-                            }
+                'helpers' => [
+                    'myeach' => function ($context, HelperOptions $options) {
+                        $theArray = json_decode($context, true);
+                        if (!is_array($theArray)) {
+                            return '';
+                        }
 
-                            $ret = '';
-                            foreach ($theArray as $i => $value) {
-                                $ret .= $options->fn([], ['blockParams' => [$value, $i]]);
-                            }
-                            return $ret;
-                        },
-                    ],
-                ),
+                        $ret = '';
+                        foreach ($theArray as $i => $value) {
+                            $ret .= $options->fn([], ['blockParams' => [$value, $i]]);
+                        }
+                        return $ret;
+                    },
+                ],
                 'expected' => "Foo ayy 0\nFoo zzz 1\n",
             ],
 
@@ -1689,13 +1605,11 @@ class RegressionTest extends TestCase
             [
                 'template' => '{{testNull null undefined 1}}',
                 'data' => 'test',
-                'options' => new Options(
-                    helpers: [
-                        'testNull' => function ($arg1, $arg2) {
-                            return ($arg1 === null && $arg2 === null) ? 'YES!' : 'no';
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'testNull' => function ($arg1, $arg2) {
+                        return ($arg1 === null && $arg2 === null) ? 'YES!' : 'no';
+                    },
+                ],
                 'expected' => 'YES!',
             ],
 
@@ -1703,11 +1617,9 @@ class RegressionTest extends TestCase
                 'template' => '{{> (pname foo) bar}}',
                 'data' => ['bar' => 'OK! SUBEXP+PARTIAL!', 'foo' => 'test/test3'],
                 'options' => new Options(
-                    helpers: [
-                        'pname' => fn($arg) => $arg,
-                    ],
                     partials: ['test/test3' => '{{.}}'],
                 ),
+                'helpers' => ['pname' => fn($arg) => $arg],
                 'expected' => 'OK! SUBEXP+PARTIAL!',
             ],
 
@@ -1719,21 +1631,21 @@ class RegressionTest extends TestCase
                     'age' => 5,
                 ],
                 'options' => new Options(
-                    helpers: [
-                        'partial_name_helper' => function (string $type) {
-                            return match ($type) {
-                                'man', 'woman' => 'people',
-                                'dog', 'cat' => 'animal',
-                                default => 'default',
-                            };
-                        },
-                    ],
                     partials: [
                         'people' => 'This is {{name}}, he is {{age}} years old.',
                         'animal' => 'This is {{name}}, it is {{age}} years old.',
                         'default' => 'This is {{name}}.',
                     ],
                 ),
+                'helpers' => [
+                    'partial_name_helper' => function (string $type) {
+                        return match ($type) {
+                            'man', 'woman' => 'people',
+                            'dog', 'cat' => 'animal',
+                            default => 'default',
+                        };
+                    },
+                ],
                 'expected' => 'This is Lucky, it is 5 years old.',
             ],
 
@@ -1748,80 +1660,64 @@ class RegressionTest extends TestCase
 
             [
                 'template' => '{{[helper]}}',
-                'options' => new Options(
-                    helpers: [
-                        'helper' => fn() => 'DEF',
-                    ],
-                ),
+                'helpers' => ['helper' => fn() => 'DEF'],
                 'data' => [],
                 'expected' => 'DEF',
             ],
 
             [
                 'template' => '{{#[helper3]}}ABC{{/[helper3]}}',
-                'options' => new Options(
-                    helpers: [
-                        'helper3' => fn() => 'DEF',
-                    ],
-                ),
+                'helpers' => ['helper3' => fn() => 'DEF'],
                 'data' => [],
                 'expected' => 'DEF',
             ],
 
             [
                 'template' => '{{hash abc=["def=123"]}}',
-                'options' => new Options(
-                    helpers: [
-                        'hash' => function (HelperOptions $options) {
-                            $ret = '';
-                            foreach ($options->hash as $k => $v) {
-                                $ret .= "$k : $v,";
-                            }
-                            return $ret;
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'hash' => function (HelperOptions $options) {
+                        $ret = '';
+                        foreach ($options->hash as $k => $v) {
+                            $ret .= "$k : $v,";
+                        }
+                        return $ret;
+                    },
+                ],
                 'data' => ['"def=123"' => 'La!'],
                 'expected' => 'abc : La!,',
             ],
 
             [
                 'template' => '{{hash abc=[\'def=123\']}}',
-                'options' => new Options(
-                    helpers: [
-                        'hash' => function (HelperOptions $options) {
-                            $ret = '';
-                            foreach ($options->hash as $k => $v) {
-                                $ret .= "$k : $v,";
-                            }
-                            return $ret;
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'hash' => function (HelperOptions $options) {
+                        $ret = '';
+                        foreach ($options->hash as $k => $v) {
+                            $ret .= "$k : $v,";
+                        }
+                        return $ret;
+                    },
+                ],
                 'data' => ["'def=123'" => 'La!'],
                 'expected' => 'abc : La!,',
             ],
 
             [
                 'template' => 'ABC{{#block "YES!"}}DEF{{foo}}GHI{{else}}NO~{{/block}}JKL',
-                'options' => new Options(
-                    helpers: [
-                        'block' => function ($name, HelperOptions $options) {
-                            return "1-$name-2-" . $options->fn() . '-3';
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'block' => function ($name, HelperOptions $options) {
+                        return "1-$name-2-" . $options->fn() . '-3';
+                    },
+                ],
                 'data' => ['foo' => 'bar'],
                 'expected' => 'ABC1-YES!-2-DEFbarGHI-3JKL',
             ],
 
             [
                 'template' => '-{{getroot}}=',
-                'options' => new Options(
-                    helpers: [
-                        'getroot' => fn(HelperOptions $options) => $options->data['root'],
-                    ],
-                ),
+                'helpers' => [
+                    'getroot' => fn(HelperOptions $options) => $options->data['root'],
+                ],
                 'data' => 'ROOT!',
                 'expected' => '-ROOT!=',
             ],
@@ -1834,13 +1730,11 @@ class RegressionTest extends TestCase
 
             [
                 'template' => 'ABC{{#block "YES!"}}TRUE{{else}}DEF{{foo}}GHI{{/block}}JKL',
-                'options' => new Options(
-                    helpers: [
-                        'block' => function ($name, HelperOptions $options) {
-                            return "1-$name-2-" . $options->inverse() . '-3';
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'block' => function ($name, HelperOptions $options) {
+                        return "1-$name-2-" . $options->inverse() . '-3';
+                    },
+                ],
                 'data' => ['foo' => 'bar'],
                 'expected' => 'ABC1-YES!-2-DEFbarGHI-3JKL',
             ],
@@ -1911,11 +1805,7 @@ class RegressionTest extends TestCase
 
             [
                 'template' => '{{good_helper}}',
-                'options' => new Options(
-                    helpers: [
-                        'good_helper' => fn() => 'OK!',
-                    ],
-                ),
+                'helpers' => ['good_helper' => fn() => 'OK!'],
                 'expected' => 'OK!',
             ],
 
@@ -1989,116 +1879,92 @@ class RegressionTest extends TestCase
 
             [
                 'template' => '{{#myif foo}}YES{{else}}NO{{/myif}}',
-                'options' => new Options(
-                    helpers: ['myif' => $myIf],
-                ),
+                'helpers' => ['myif' => $myIf],
                 'expected' => 'NO',
             ],
 
             [
                 'template' => '{{#myif foo}}YES{{else}}NO{{/myif}}',
                 'data' => ['foo' => 1],
-                'options' => new Options(
-                    helpers: ['myif' => $myIf],
-                ),
+                'helpers' => ['myif' => $myIf],
                 'expected' => 'YES',
             ],
 
             [
                 'template' => '{{#mylogic 0 foo bar}}YES:{{.}}{{else}}NO:{{.}}{{/mylogic}}',
                 'data' => ['foo' => 'FOO', 'bar' => 'BAR'],
-                'options' => new Options(
-                    helpers: ['mylogic' => $myLogic],
-                ),
+                'helpers' => ['mylogic' => $myLogic],
                 'expected' => 'NO:BAR',
             ],
 
             [
                 'template' => '{{#mylogic true foo bar}}YES:{{.}}{{else}}NO:{{.}}{{/mylogic}}',
                 'data' => ['foo' => 'FOO', 'bar' => 'BAR'],
-                'options' => new Options(
-                    helpers: ['mylogic' => $myLogic],
-                ),
+                'helpers' => ['mylogic' => $myLogic],
                 'expected' => 'YES:FOO',
             ],
 
             [
                 'template' => '{{#mywith foo}}YA: {{name}}{{/mywith}}',
                 'data' => ['name' => 'OK?', 'foo' => ['name' => 'OK!']],
-                'options' => new Options(
-                    helpers: ['mywith' => $myWith],
-                ),
+                'helpers' => ['mywith' => $myWith],
                 'expected' => 'YA: OK!',
             ],
 
             [
                 'template' => '{{mydash \'abc\' "dev"}}',
                 'data' => ['a' => 'a', 'b' => 'b', 'c' => ['c' => 'c'], 'd' => 'd', 'e' => 'e'],
-                'options' => new Options(
-                    helpers: ['mydash' => $myDash],
-                ),
+                'helpers' => ['mydash' => $myDash],
                 'expected' => 'abc-dev',
             ],
 
             [
                 'template' => '{{mydash \'a b c\' "d e f"}}',
                 'data' => ['a' => 'a', 'b' => 'b', 'c' => ['c' => 'c'], 'd' => 'd', 'e' => 'e'],
-                'options' => new Options(
-                    helpers: ['mydash' => $myDash],
-                ),
+                'helpers' => ['mydash' => $myDash],
                 'expected' => 'a b c-d e f',
             ],
 
             [
                 'template' => '{{mydash "abc" (test_array 1)}}',
                 'data' => ['a' => 'a', 'b' => 'b', 'c' => ['c' => 'c'], 'd' => 'd', 'e' => 'e'],
-                'options' => new Options(
-                    helpers: [
-                        'mydash' => $myDash,
-                        'test_array' => function ($input) {
-                            return is_array($input) ? 'IS_ARRAY' : 'NOT_ARRAY';
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'mydash' => $myDash,
+                    'test_array' => function ($input) {
+                        return is_array($input) ? 'IS_ARRAY' : 'NOT_ARRAY';
+                    },
+                ],
                 'expected' => 'abc-NOT_ARRAY',
             ],
 
             [
                 'template' => '{{mydash "abc" (myjoin a b)}}',
                 'data' => ['a' => 'a', 'b' => 'b', 'c' => ['c' => 'c'], 'd' => 'd', 'e' => 'e'],
-                'options' => new Options(
-                    helpers: [
-                        'mydash' => $myDash,
-                        'myjoin' => function ($a, $b) {
-                            return "$a$b";
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'mydash' => $myDash,
+                    'myjoin' => function ($a, $b) {
+                        return "$a$b";
+                    },
+                ],
                 'expected' => 'abc-ab',
             ],
 
             [
                 'template' => '{{#equals my_var false}}Equal to false{{else}}Not equal{{/equals}}',
                 'data' => ['my_var' => 0],
-                'options' => new Options(
-                    helpers: ['equals' => $equals],
-                ),
+                'helpers' => ['equals' => $equals],
                 'expected' => 'Equal to false',
             ],
             [
                 'template' => '{{#equals my_var false}}Equal to false{{else}}Not equal{{/equals}}',
                 'data' => ['my_var' => 1],
-                'options' => new Options(
-                    helpers: ['equals' => $equals],
-                ),
+                'helpers' => ['equals' => $equals],
                 'expected' => 'Not equal',
             ],
             [
                 'template' => '{{#equals my_var false}}Equal to false{{else}}Not equal{{/equals}}',
                 'data' => [],
-                'options' => new Options(
-                    helpers: ['equals' => $equals],
-                ),
+                'helpers' => ['equals' => $equals],
                 'expected' => 'Not equal',
             ],
 
@@ -2129,28 +1995,26 @@ class RegressionTest extends TestCase
                     VAREND
                 ,
                 'data' => ['name' => 'John', 'value' => 10000, 'url' => 'http://yahoo.com', 'text' => 'You&Me!'],
-                'options' => new Options(
-                    helpers: [
-                        'helper1' => function ($arg) {
-                            $arg = is_array($arg) ? 'Array' : $arg;
-                            return "-$arg-";
-                        },
-                        'helper2' => function ($arg) {
-                            return is_array($arg) ? '=Array=' : "=$arg=";
-                        },
-                        'link' => function ($arg) {
-                            if (is_array($arg)) {
-                                $arg = 'Array';
-                            }
-                            return "<a href=\"{$arg}\">click here</a>";
-                        },
-                        'alink' => function ($u, $t) {
-                            $u = is_array($u) ? 'Array' : $u;
-                            $t = is_array($t) ? 'Array' : $t;
-                            return "<a href=\"$u\">$t</a>";
-                        },
-                    ],
-                ),
+                'helpers' => [
+                    'helper1' => function ($arg) {
+                        $arg = is_array($arg) ? 'Array' : $arg;
+                        return "-$arg-";
+                    },
+                    'helper2' => function ($arg) {
+                        return is_array($arg) ? '=Array=' : "=$arg=";
+                    },
+                    'link' => function ($arg) {
+                        if (is_array($arg)) {
+                            $arg = 'Array';
+                        }
+                        return "<a href=\"{$arg}\">click here</a>";
+                    },
+                    'alink' => function ($u, $t) {
+                        $u = is_array($u) ? 'Array' : $u;
+                        $t = is_array($t) ? 'Array' : $t;
+                        return "<a href=\"$u\">$t</a>";
+                    },
+                ],
                 'expected' => <<<VAREND
                     <ul>
                      <li>1. -John-</li>
@@ -2285,11 +2149,9 @@ class RegressionTest extends TestCase
 
             [
                 'template' => ">{{helper1 \"===\"}}<",
-                'options' => new Options(
-                    helpers: [
-                        'helper1' => fn($arg) => is_array($arg) ? '-Array-' : "-$arg-",
-                    ],
-                ),
+                'helpers' => [
+                    'helper1' => fn($arg) => is_array($arg) ? '-Array-' : "-$arg-",
+                ],
                 'expected' => ">-&#x3D;&#x3D;&#x3D;-<",
             ],
 

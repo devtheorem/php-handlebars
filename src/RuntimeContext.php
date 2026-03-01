@@ -5,11 +5,11 @@ namespace DevTheorem\Handlebars;
 /**
  * @internal
  */
-class RuntimeContext
+final class RuntimeContext
 {
     /**
-     * @param array<string, callable> $helpers
-     * @param array<string, callable> $partials
+     * @param array<string, \Closure> $helpers
+     * @param array<string, \Closure> $partials
      * @param array<mixed> $scopes
      * @param array<mixed> $data
      * @param array<mixed> $blParam
