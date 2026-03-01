@@ -58,16 +58,24 @@ $template = Handlebars::compile('Hi {{first}} {{last}}!', new Options(
 echo $template(['first' => 'John']); // Error: Runtime: last does not exist
 ```
 
-**Available Options:**
+### Available Options
+
+* `knownHelpers`: Associative array (`helperName => bool`) of helpers known to exist at template execution time.
+  Passing this allows the compiler to optimize a number of cases.
+  Builtin helpers are automatically included in this list and may be omitted by setting that value to `false`.
 * `knownHelpersOnly`: Enable to allow further optimizations based on the known helpers list.
 * `noEscape`: Enable to not HTML escape any content.
 * `strict`: Run in strict mode. In this mode, templates will throw rather than silently ignore missing fields.
-* `assumeObjects`: Removes object existence checks when traversing paths. This is a subset of strict mode that generates optimized templates when the data inputs are known to be safe.
+  This has the side effect of disabling inverse operations such as `{{^foo}}{{/foo}}`
+  unless fields are explicitly included in the source object.
+* `assumeObjects`: Removes object existence checks when traversing paths.
+  This is a subset of strict mode that generates optimized templates when the data inputs are known to be safe.
 * `preventIndent`: Prevent indented partial-call from indenting the entire partial output by the same amount.
-* `ignoreStandalone`: Disables standalone tag removal. When set, blocks and partials that are on their own line will not remove the whitespace on that line.
-* `explicitPartialContext`: Disables implicit context for partials. When enabled, partials that are not passed a context value will execute against an empty object.
-* `helpers`: Provide a key => value array of custom helper functions.
-* `partials`: Provide a key => value array of custom partial templates.
+* `ignoreStandalone`: Disables standalone tag removal.
+  When set, blocks and partials that are on their own line will not remove the whitespace on that line.
+* `explicitPartialContext`: Disables implicit context for partials.
+  When enabled, partials that are not passed a context value will execute against an empty object.
+* `partials`: Provide a `name => value` array of custom partial templates.
 * `partialResolver`: A closure which will be called for any partial not in the `partials` array to return a template for it.
 
 ## Custom Helpers
@@ -80,28 +88,30 @@ This object contains properties for accessing `hash` arguments, `data`, and the 
 For example, a custom `#equals` helper with JS equality semantics could be implemented as follows:
 
 ```php
-use DevTheorem\Handlebars\{Handlebars, HelperOptions, Options};
+use DevTheorem\Handlebars\{Handlebars, HelperOptions};
 
-$template = Handlebars::compile('{{#equals my_var false}}Equal to false{{else}}Not equal{{/equals}}', new Options(
-    helpers: [
+$template = Handlebars::compile('{{#equals my_var false}}Equal to false{{else}}Not equal{{/equals}}');
+$options = [
+    'helpers' => [
         'equals' => function (mixed $a, mixed $b, HelperOptions $options) {
             $jsEquals = function (mixed $a, mixed $b): bool {
-                if ($a === null || $b === null) {
-                    // in JS, null is not equal to blank string or false or zero
+                if ($a === null || $b === null || is_string($a) && is_string($b)) {
+                    // In JS, null is not equal to blank string or false or zero,
+                    // and when both operands are strings no coercion is performed.
                     return $a === $b;
                 }
-
+    
                 return $a == $b;
             };
-
+    
             return $jsEquals($a, $b) ? $options->fn() : $options->inverse();
         },
     ],
-));
+];
 
-echo $template(['my_var' => 0]); // Equal to false
-echo $template(['my_var' => 1]); // Not equal
-echo $template(['my_var' => null]); // Not equal
+echo $template(['my_var' => 0], $options); // Equal to false
+echo $template(['my_var' => 1], $options); // Not equal
+echo $template(['my_var' => null], $options); // Not equal
 ```
 
 ## Hooks
@@ -115,13 +125,13 @@ a helper that is not registered, even when the name matches a property in the cu
 For example:
 
 ```php
-use DevTheorem\Handlebars\{Handlebars, HelperOptions, Options};
+use DevTheorem\Handlebars\{Handlebars, HelperOptions};
 
-$templateStr = '{{foo 2 "value"}}
-{{#person}}{{firstName}} {{lastName}}{{/person}}';
+$template = Handlebars::compile('{{foo 2 "value"}}
+{{#person}}{{firstName}} {{lastName}}{{/person}}');
 
-$template = Handlebars::compile($templateStr, new Options(
-    helpers: [
+$options = [
+    'helpers' => [
         'helperMissing' => function (...$args) {
             $options = array_pop($args);
             return "Missing {$options->name}(" . implode(',', $args) . ')';
@@ -130,9 +140,9 @@ $template = Handlebars::compile($templateStr, new Options(
             return "'{$options->name}' not found. Printing block: {$options->fn($context)}";
         },
     ],
-));
+];
 
-echo $template(['person' => ['firstName' => 'John', 'lastName' => 'Doe']]);
+echo $template(['person' => ['firstName' => 'John', 'lastName' => 'Doe']], $options);
 ```
 Output:
 > Missing foo(2,value)  
@@ -147,7 +157,10 @@ Helpers may return a `DevTheorem\Handlebars\SafeString` instance to prevent esca
 When constructing the string that will be marked as safe, any external content should be properly escaped
 using the `Handlebars::escapeExpression()` method to avoid potential security concerns.
 
-## Missing features
+## Missing Features
 
-All syntax from Handlebars.js 4.7.8 should work the same in this implementation, with the following exception:
-* Decorators ([deprecated in Handlebars.js](https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md)) have not been implemented.
+All syntax and language features from Handlebars.js 4.7.8 should work the same in PHP Handlebars,
+with the following exceptions:
+
+* Custom Decorators have not been implemented, as they are [deprecated in Handlebars.js](https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md).
+* The `data` and `compat` compilation options have not been implemented.
