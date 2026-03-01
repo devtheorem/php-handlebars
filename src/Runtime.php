@@ -6,9 +6,111 @@ namespace DevTheorem\Handlebars;
 
 /**
  * @internal
+ * @phpstan-import-type RenderOptions from Handlebars
  */
 final class Runtime
 {
+    /** @var array<string, \Closure>|null */
+    private static ?array $defaultHelpers = null;
+    /** Parent RuntimeContext during a user-partial invocation, null at top level. */
+    private static ?RuntimeContext $partialContext = null;
+
+    /**
+     * Default implementations of the built-in Handlebars helpers.
+     * These are pre-registered in every runtime context and can be overridden.
+     *
+     * @return array<string, \Closure>
+     */
+    public static function defaultHelpers(): array
+    {
+        return self::$defaultHelpers ??= [
+            'if' => static function (mixed ...$args): string {
+                if (count($args) !== 2) {
+                    throw new \Exception('#if requires exactly one argument');
+                }
+                /** @var HelperOptions $options */
+                $options = $args[1];
+                $condition = $args[0] instanceof \Closure ? $args[0]($options->scope) : $args[0];
+                return static::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
+                    ? $options->fn($options->scope)
+                    : $options->inverse();
+            },
+            'unless' => static function (mixed ...$args): string {
+                if (count($args) !== 2) {
+                    throw new \Exception('#unless requires exactly one argument');
+                }
+                /** @var HelperOptions $options */
+                $options = $args[1];
+                $condition = $args[0] instanceof \Closure ? $args[0]($options->scope) : $args[0];
+                return static::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
+                    ? $options->inverse()
+                    : $options->fn($options->scope);
+            },
+            'each' => static function (mixed $context, ?HelperOptions $options = null): string {
+                if (!$options) {
+                    throw new \Exception('Must pass iterator to #each');
+                }
+                if ($context instanceof \Closure) {
+                    $context = $context($options->scope);
+                }
+                if ($context instanceof \Traversable) {
+                    $context = iterator_to_array($context);
+                } elseif (!is_array($context)) {
+                    $context = [];
+                }
+                return $options->iterate($context);
+            },
+            'with' => static function (mixed ...$args): string {
+                if (count($args) !== 2) {
+                    throw new \Exception('#with requires exactly one argument');
+                }
+                /** @var HelperOptions $options */
+                $options = $args[1];
+                $context = $args[0] instanceof \Closure ? $args[0]($options->scope) : $args[0];
+                if (static::ifvar($context)) {
+                    return $options->fn($context, ['blockParams' => [$context]]);
+                }
+                return $options->inverse();
+            },
+            'lookup' => static function (mixed $obj, string|int $key): mixed {
+                if (is_array($obj)) {
+                    return $obj[$key] ?? null;
+                }
+                if (is_object($obj)) {
+                    return $obj->$key ?? null;
+                }
+                return null;
+            },
+            'log' => static function (mixed ...$args): string {
+                array_pop($args); // remove HelperOptions
+                error_log(var_export($args, true));
+                return '';
+            },
+            'helperMissing' => static function (mixed ...$args): mixed {
+                /** @var HelperOptions $options */
+                $options = end($args);
+                if (count($args) === 1 && !isset($options->fn)) {
+                    // Bare variable lookup with no match — return null (mirrors HBS.js undefined).
+                    return null;
+                }
+                throw new \Exception('Missing helper: "' . $options->name . '"');
+            },
+            'blockHelperMissing' => static function (mixed $context, HelperOptions $options): string {
+                if ($context instanceof \Traversable) {
+                    $context = iterator_to_array($context);
+                }
+                if (is_array($context)) {
+                    return array_is_list($context) ? $options->iterate($context) : $options->fn($context);
+                }
+                if ($context === false || $context === null) {
+                    return $options->inverse();
+                }
+                // true renders with the outer scope unchanged; any other truthy value becomes the new scope.
+                return $options->fn($context === true ? $options->scope : $context);
+            },
+        ];
+    }
+
     /**
      * Throw exception for missing expression. Only used in strict mode.
      */
@@ -30,6 +132,41 @@ final class Runtime
     }
 
     /**
+     * Build a RuntimeContext from raw render options and compile-time partial closures.
+     *
+     * @param RenderOptions $options
+     * @param array<string, \Closure> $compiledPartials
+     */
+    public static function createContext(mixed $context, array $options, array $compiledPartials): RuntimeContext
+    {
+        $parentCx = self::$partialContext;
+        $root = ['root' => $context];
+
+        if ($parentCx !== null) {
+            // Partial context: reuse the parent's already-merged helpers and partials directly.
+            // PHP copy-on-write ensures partials is only copied if in() registers a new inline partial.
+            // Inherit the parent's current frame so @index, @key, etc. remain accessible inside partials.
+            // templateClosure will update frame['root'] to reference this partial's own data['root'].
+            return new RuntimeContext(
+                helpers: $parentCx->helpers,
+                partials: $parentCx->partials,
+                depths: $parentCx->depths,
+                data: $root,
+                partialId: $parentCx->partialId,
+                frame: $parentCx->frame,
+            );
+        }
+
+        $data = $options['data'] ?? [];
+        return new RuntimeContext(
+            helpers: array_replace(Runtime::defaultHelpers(), $options['helpers'] ?? []),
+            partials: array_replace($compiledPartials, $options['partials'] ?? []),
+            data: ['root' => $data['root'] ?? $context],
+            frame: $data,
+        );
+    }
+
+    /**
      * Invoke $v if it is callable, passing any extra args; otherwise return $v as-is.
      * Used for data variables that may hold functions (e.g. {{@hello}} or {{@hello "arg"}}).
      */
@@ -39,13 +176,34 @@ final class Runtime
     }
 
     /**
-     * For {{log}}.
-     * @param array<mixed> $v
+     * Context variable lookup for knownHelpersOnly mode.
+     * Looks up $name in $_this; if the value is a Closure, invokes it with $_this as context.
+     * Skips helper dispatch (the compiler has already ruled out known helpers).
+     *
+     * @param mixed $_this current rendering context
      */
-    public static function lo(array $v): string
+    public static function cv(mixed &$_this, string $name): mixed
     {
-        error_log(var_export($v[0], true));
-        return '';
+        $v = is_array($_this) ? ($_this[$name] ?? null) : null;
+        return $v instanceof \Closure ? $v($_this) : $v;
+    }
+
+    /**
+     * Helper-or-variable lookup for bare {{identifier}} expressions.
+     * Checks runtime helpers first, then context value, then helperMissing fallback.
+     *
+     * @param mixed $_this current rendering context
+     */
+    public static function hv(RuntimeContext $cx, string $name, mixed &$_this): mixed
+    {
+        $helper = $cx->helpers[$name] ?? null;
+        if ($helper !== null) {
+            return static::hbch($cx, $helper, $name, [], [], $_this);
+        }
+        if (is_array($_this) && array_key_exists($name, $_this)) {
+            return static::dv($_this[$name]);
+        }
+        return static::hbch($cx, $cx->helpers['helperMissing'], $name, [], [], $_this);
     }
 
     /**
@@ -67,7 +225,7 @@ final class Runtime
     }
 
     /**
-     * For {{^var}} .
+     * Returns true if an inverse block {{^var}} should be rendered.
      *
      * @param array<array<mixed>|string|int>|string|int|bool|null $v value to be tested
      *
@@ -76,6 +234,17 @@ final class Runtime
     public static function isec(mixed $v): bool
     {
         return $v === null || $v === false || (is_array($v) && !$v);
+    }
+
+    /**
+     * Inverted section with runtime helper check.
+     */
+    public static function isech(RuntimeContext $cx, mixed $v, mixed $in, \Closure $else, string $helperName): string
+    {
+        if (isset($cx->helpers[$helperName])) {
+            return static::hbbch($cx, $cx->helpers[$helperName], $helperName, [], [], $in, null, $else);
+        }
+        return static::hbbch($cx, $cx->helpers['blockHelperMissing'], $helperName, [$v], [], $in, null, $else);
     }
 
     /**
@@ -123,161 +292,32 @@ final class Runtime
     }
 
     /**
-     * For {{#var}} or {{#each}} .
+     * For {{#var}} sections.
      *
-     * @param array<array<mixed>|string|int>|string|int|bool|null|\Closure|\Traversable<string, mixed> $v value for the section
-     * @param array<string> $bp block parameters
-     * @param array<array<mixed>|string|int>|string|int|null $in input data with current scope
-     * @param bool $each true when rendering #each
+     * @param mixed $in input data with current scope
      * @param \Closure $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
      */
-    public static function sec(RuntimeContext $cx, mixed $v, array $bp, mixed $in, bool $each, \Closure $cb, ?\Closure $else = null): string
+    public static function sec(RuntimeContext $cx, mixed $value, mixed $in, \Closure $cb, ?\Closure $else = null, ?string $helperName = null): string
     {
-        if ($else !== null && (is_array($v) || $v instanceof \ArrayObject)) {
-            return $else($cx, $in);
+        if ($helperName !== null && isset($cx->helpers[$helperName])) {
+            return static::hbbch($cx, $cx->helpers[$helperName], $helperName, [], [], $in, $cb, $else);
         }
 
-        $push = $in !== $v || $each;
-        $isAry = is_array($v) || $v instanceof \ArrayObject;
-        $isTrav = $v instanceof \Traversable;
-        $loop = $each || (is_array($v) && array_is_list($v));
-
-        if (($loop && $isAry || $isTrav) && is_iterable($v)) {
-            $last = null;
-            $isObj = false;
-            $isSparseArray = false;
-            if (is_array($v)) {
-                $keys = array_keys($v);
-                $last = count($keys) - 1;
-                $isObj = !array_is_list($v);
-                $isSparseArray = $isObj && !array_filter($keys, is_string(...));
-            }
-            $ret = [];
-            $cx = clone $cx;
-            if ($push) {
-                $cx->scopes[] = $in;
-            }
-            $i = 0;
-            $oldData = $cx->data ?? [];
-            $cx->data = array_merge(['root' => $oldData['root'] ?? null], $oldData, ['_parent' => $oldData]);
-
-            foreach ($v as $index => $raw) {
-                $cx->data['first'] = ($i === 0);
-                $cx->data['last'] = ($i === $last);
-                $cx->data['key'] = $index;
-                $cx->data['index'] = $isSparseArray ? $index : $i;
-                $i++;
-                if ($bp) {
-                    $bpEntry = [];
-                    if (isset($bp[0])) {
-                        $bpEntry[$bp[0]] = $raw;
-                        $raw = static::merge($raw, [$bp[0] => $raw]);
-                    }
-                    if (isset($bp[1])) {
-                        $bpEntry[$bp[1]] = $index;
-                        $raw = static::merge($raw, [$bp[1] => $index]);
-                    }
-                    array_unshift($cx->blParam, $bpEntry);
-                }
-                $ret[] = $cb($cx, $raw);
-                if ($bp) {
-                    array_shift($cx->blParam);
-                }
-            }
-
-            if ($isObj) {
-                unset($cx->data['key']);
-            } else {
-                unset($cx->data['last']);
-            }
-            unset($cx->data['index'], $cx->data['first']);
-
-            if ($push) {
-                array_pop($cx->scopes);
-            }
-            return join('', $ret);
-        }
-
-        if ($each) {
-            return ($else !== null) ? $else($cx, $in) : '';
-        }
-
-        if ($isAry) {
-            if ($push) {
-                $cx->scopes[] = $in;
-            }
-            $ret = $cb($cx, $v);
-            if ($push) {
-                array_pop($cx->scopes);
-            }
-            return $ret;
-        }
-
-        if ($v instanceof \Closure) {
-            $options = new HelperOptions(
-                name: '',
-                hash: [],
-                fn: function ($context = null) use ($cx, $in, $cb) {
-                    if ($context === null || $context === $in) {
-                        return $cb($cx, $in);
-                    }
-                    return static::withScope($cx, $in, $context, $cb);
-                },
-                inverse: function ($context = null) use ($cx, $in, $else) {
-                    if ($else === null) {
-                        return '';
-                    }
-                    if ($context === null || $context === $in) {
-                        return $else($cx, $in);
-                    }
-                    return static::withScope($cx, $in, $context, $else);
-                },
-                blockParams: 0,
+        // Lambda functions in block position receive HelperOptions directly.
+        // This must be checked before blockHelperMissing routing.
+        if ($value instanceof \Closure) {
+            $result = $value(new HelperOptions(
                 scope: $in,
-                data: $cx->data,
-            );
-            $result = $v($options);
-            return static::applyBlockHelperMissing($cx, $result, $in, $cb, $else);
+                data: $cx->frame,
+                cx: $cx,
+                cb: $cb,
+                inv: $else,
+            ));
+            return static::resolveBlockResult($cx, $result, $in, $cb, $else);
         }
 
-        if ($v !== null && $v !== false) {
-            return $cb($cx, $v === true ? $in : $v);
-        }
-
-        return $else !== null ? $else($cx, $in) : '';
-    }
-
-    /**
-     * For {{#with}} .
-     *
-     * @param array<array<mixed>|string|int>|string|int|null $v value to be the new context
-     * @param array<string> $bp block parameters
-     * @param array<array<mixed>|string|int>|\stdClass|null $in input data with current scope
-     * @param \Closure $cb callback function to render child context
-     * @param \Closure|null $else callback function to render child context when {{else}}
-     */
-    public static function wi(RuntimeContext $cx, mixed $v, array $bp, array|\stdClass|null $in, \Closure $cb, ?\Closure $else = null): string
-    {
-        if (isset($bp[0])) {
-            $v = static::merge($v, [$bp[0] => $v]);
-        }
-
-        if ($v === null || is_array($v) && !$v) {
-            return $else ? $else($cx, $in) : '';
-        }
-
-        $savedPartials = $cx->partials;
-
-        if ($v === $in) {
-            $ret = $cb($cx, $v);
-        } else {
-            $ret = static::withScope($cx, $in, $v, $cb);
-        }
-
-        $cx->partials = $savedPartials;
-
-        return $ret;
+        return static::hbbch($cx, $cx->helpers['blockHelperMissing'], $helperName ?? '', [$value], [], $in, $cb, $else);
     }
 
     /**
@@ -310,22 +350,31 @@ final class Runtime
     /**
      * For {{> partial}} .
      *
-     * @param string $p partial name
-     * @param array<array<mixed>> $v value to be the new context
+     * @param string $name partial name
+     * @param mixed $context the partial's context value
+     * @param array<string, mixed> $hash named hash overrides merged into the context
      * @param string $indent whitespace to prepend to each line of the partial's output
      */
-    public static function p(RuntimeContext $cx, string $p, array $v, int $pid, string $indent): string
+    public static function p(RuntimeContext $cx, string $name, mixed $context, array $hash, int $pid, string $indent): string
     {
-        $pp = ($p === '@partial-block') ? $p . ($pid > 0 ? $pid : $cx->partialId) : $p;
+        $pp = ($name === '@partial-block') ? $name . ($pid > 0 ? $pid : $cx->partialId) : $name;
 
-        if (!isset($cx->partials[$pp])) {
-            throw new \Exception("The partial $p could not be found");
+        $fn = $cx->partials[$pp] ?? null;
+        if ($fn === null) {
+            throw new \Exception("The partial $name could not be found");
         }
 
         $savedPartialId = $cx->partialId;
-        $cx->partialId = ($p === '@partial-block') ? ($pid > 0 ? $pid : ($cx->partialId > 0 ? $cx->partialId - 1 : 0)) : $pid;
+        $cx->partialId = ($name === '@partial-block') ? ($pid > 0 ? $pid : ($cx->partialId > 0 ? $cx->partialId - 1 : 0)) : $pid;
 
-        $result = $cx->partials[$pp]($cx, static::merge($v[0][0], $v[1]));
+        $context = $hash ? static::merge($context, $hash) : $context;
+        $prev = self::$partialContext;
+        self::$partialContext = $cx;
+        try {
+            $result = $fn($context);
+        } finally {
+            self::$partialContext = $prev;
+        }
         $cx->partialId = $savedPartialId;
 
         if ($indent !== '') {
@@ -345,216 +394,157 @@ final class Runtime
     }
 
     /**
-     * For {{#* inlinepartial}} .
+     * Like in() but only registers the partial if it is not already present in the context.
+     * Used for {{#> partial}}fallback{{/partial}} blocks when the partial was not found at compile time.
      *
-     * @param string $p partial name
-     * @param \Closure $code the compiled partial code
+     * @param string $name partial name
+     * @param \Closure $partial the compiled fallback partial
      */
-    public static function in(RuntimeContext $cx, string $p, \Closure $code): void
+    public static function inFallback(RuntimeContext $cx, string $name, \Closure $partial): string
     {
-        if (str_starts_with($p, '@partial-block')) {
-            // Capture the outer partialId at registration time so that when this
-            // block closure runs, any {{>@partial-block}} inside it resolves to
-            // the correct outer partial block (not partialId - 1).
-            $outerPartialId = $cx->partialId;
-            $cx->partials[$p] = function (RuntimeContext $cx, mixed $in) use ($code, $outerPartialId): string {
-                $cx->partialId = $outerPartialId;
-                return $code($cx, $in);
-            };
-        } else {
-            $cx->partials[$p] = $code;
-        }
+        $cx->partials[$name] ??= $partial;
+        return '';
     }
 
     /**
-     * For single custom helpers.
+     * For {{#* inlinepartial}} .
      *
-     * @param string $ch the name of custom helper to be executed
-     * @param array<array<mixed>> $vars variables for the helper
-     * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
-     * @param string|null $logicalName when set, use as options.name instead of $ch
+     * @param string $name partial name
+     * @param \Closure $partial the compiled partial
      */
-    public static function hbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this, ?string $logicalName = null): mixed
+    public static function in(RuntimeContext $cx, string $name, \Closure $partial): string
     {
-        if (isset($cx->blParam[0][$ch])) {
-            return $cx->blParam[0][$ch];
+        if (str_starts_with($name, '@partial-block')) {
+            // Capture the outer partialId at registration time so that when this
+            // block closure runs, any {{>@partial-block}} inside it resolves to
+            // the correct outer partial block rather than following the pid-decrement chain.
+            $outerPartialId = $cx->partialId;
+            $cx->partials[$name] = function (mixed $context = null, array $options = []) use ($partial, $outerPartialId): string {
+                $callingCx = self::$partialContext;
+                assert($callingCx !== null);
+                $savedId = $callingCx->partialId;
+                $callingCx->partialId = $outerPartialId;
+                $result = $partial($context, $options);
+                $callingCx->partialId = $savedId;
+                return $result;
+            };
+        } else {
+            $cx->partials[$name] = $partial;
+        }
+        return '';
+    }
+
+    /**
+     * @param array<mixed> $positional
+     * @param array<string, mixed> $hash
+     */
+    public static function dynhbch(RuntimeContext $cx, string $name, array $positional, array $hash, mixed &$_this): mixed
+    {
+        $helper = $cx->helpers[$name] ?? null;
+        if ($helper !== null) {
+            return static::hbch($cx, $helper, $name, $positional, $hash, $_this);
         }
 
-        $options = new HelperOptions(
-            name: $logicalName ?? $ch,
-            hash: $vars[1],
-            fn: fn() => '',
-            inverse: fn() => '',
-            blockParams: 0,
-            scope: $_this,
-            data: $cx->data,
-        );
+        $fn = $_this[$name] ?? null;
+        if ($fn instanceof \Closure) {
+            return static::hbch($cx, $fn, $name, $positional, $hash, $_this);
+        }
 
-        return static::exch($cx, $ch, $vars, $options);
+        if (!$positional && !$hash) {
+            // No arguments: must be a helper call (e.g. sub-expression), not a property lookup.
+            throw new \Exception('Missing helper: "' . $name . '"');
+        }
+
+        return static::hbch($cx, $cx->helpers['helperMissing'], $name, $positional, $hash, $_this);
+    }
+
+    /**
+     * For single known helpers.
+     *
+     * @param array<mixed> $positional
+     * @param array<string, mixed> $hash
+     * @param mixed $_this current rendering context for the helper
+     */
+    public static function hbch(RuntimeContext $cx, \Closure $helper, string $name, array $positional, array $hash, mixed &$_this): mixed
+    {
+        $options = new HelperOptions(
+            scope: $_this,
+            data: $cx->frame,
+            name: $name,
+            hash: $hash,
+        );
+        $args = $positional;
+        $args[] = $options;
+        return $helper(...$args);
     }
 
     /**
      * For block custom helpers.
      *
-     * @param string $ch the name of custom helper to be executed
-     * @param array<array<mixed>> $vars variables for the helper
-     * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
-     * @param bool $inverted the logic will be inverted
-     * @param \Closure $cb callback function to render child context
+     * @param array<mixed> $positional
+     * @param array<string, mixed> $hash
+     * @param mixed $_this current rendering context for the helper
+     * @param \Closure|null $cb callback function to render child context (null for inverted blocks)
      * @param \Closure|null $else callback function to render child context when {{else}}
-     * @param string|null $logicalName when set, use as options.name instead of $ch
+     * @param array<mixed> $outerBlockParams outer block param stack for block params declared by the template
      */
-    public static function hbbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this, bool $inverted, \Closure $cb, ?\Closure $else = null, ?string $logicalName = null): mixed
+    public static function hbbch(RuntimeContext $cx, \Closure $helper, string $name, array $positional, array $hash, mixed &$_this, ?\Closure $cb, ?\Closure $else, int $blockParamCount = 0, array $outerBlockParams = []): string
     {
-        $blockParams = isset($vars[2]) ? count($vars[2]) : 0;
-        $data = &$cx->data;
-
-        // invert the logic
-        if ($inverted) {
-            $tmp = $else;
-            $else = $cb;
-            $cb = $tmp;
-        }
-
-        $options = new HelperOptions(
-            name: $logicalName ?? $ch,
-            hash: $vars[1],
-            fn: static::makeBlockFn($cx, $_this, $cb, $vars),
-            inverse: static::makeInverseFn($cx, $_this, $else),
-            blockParams: $blockParams,
+        $positional[] = new HelperOptions(
             scope: $_this,
-            data: $data,
+            data: $cx->frame,
+            name: $name,
+            hash: $hash,
+            blockParams: $blockParamCount,
+            cx: $cx,
+            cb: $cb,
+            inv: $else,
+            outerBlockParams: $outerBlockParams,
         );
-
-        return static::applyBlockHelperMissing($cx, static::exch($cx, $ch, $vars, $options), $_this, $cb, $else);
+        return static::resolveBlockResult($cx, $helper(...$positional), $_this, $cb, $else);
     }
 
     /**
      * Like hbbch but for non-registered paths (pathed/depthed/scoped block calls with params).
-     * @param array<array<mixed>> $vars variables for the helper
+     * @param array<mixed> $positional
+     * @param array<string, mixed> $hash
      * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
      * @param \Closure $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
+     * @param array<mixed> $outerBlockParams outer block param stack for block params declared by the template
      */
-    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $vars, mixed &$_this, \Closure $cb, ?\Closure $else = null): mixed
+    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $positional, array $hash, mixed &$_this, \Closure $cb, ?\Closure $else, int $blockParamCount, array $outerBlockParams): mixed
     {
+        $helper = $cx->helpers[$name] ?? null;
+        if ($helper !== null) {
+            return static::hbbch($cx, $helper, $name, $positional, $hash, $_this, $cb, $else, $blockParamCount, $outerBlockParams);
+        }
+
         if (!$callable instanceof \Closure) {
-            throw new \Exception('"' . $name . '" is not a block helper function');
+            return static::hbbch($cx, $cx->helpers['helperMissing'], $name, $positional, $hash, $_this, $cb, $else, $blockParamCount, $outerBlockParams);
         }
 
-        $blockParams = isset($vars[2]) ? count($vars[2]) : 0;
-        $data = &$cx->data;
-
-        $options = new HelperOptions(
-            name: '',
-            hash: $vars[1],
-            fn: static::makeBlockFn($cx, $_this, $cb, $vars),
-            inverse: static::makeInverseFn($cx, $_this, $else),
-            blockParams: $blockParams,
-            scope: $_this,
-            data: $data,
-        );
-
-        $args = $vars[0];
-        $args[] = $options;
-        try {
-            $result = $callable(...$args);
-        } catch (\Throwable $e) {
-            throw new \Exception('Runtime: dynamic block helper error: ' . $e->getMessage());
-        }
-
-        return static::applyBlockHelperMissing($cx, $result, $_this, $cb, $else);
+        return static::hbbch($cx, $callable, '', $positional, $hash, $_this, $cb, $else, $blockParamCount, $outerBlockParams);
     }
 
     /**
-     * Build the $fn closure passed to HelperOptions for block helpers.
-     * Handles private variable updates, block-param injection, and context scope pushing.
-     *
-     * @param array<array<mixed>> $vars
+     * Resolve the return value of a block helper call:
+     * pass through string/SafeString, stringify arrays, or delegate non-string values to blockHelperMissing.
      */
-    private static function makeBlockFn(RuntimeContext $cx, mixed $_this, ?\Closure $cb, array $vars): \Closure
-    {
-        if (!$cb) {
-            return fn() => '';
-        }
-
-        return function ($context = null, $data = null) use ($cx, $_this, $cb, $vars) {
-            $cx = clone $cx;
-            $oldData = $cx->data;
-            if (isset($data['data'])) {
-                $cx->data = array_merge(['root' => $oldData['root']], $data['data'], ['_parent' => $oldData]);
-            }
-
-            if (isset($data['blockParams'], $vars[2])) {
-                $ex = array_combine($vars[2], array_slice($data['blockParams'], 0, count($vars[2])));
-                array_unshift($cx->blParam, $ex);
-            }
-
-            if ($context === null || $context === $_this) {
-                $ret = $cb($cx, $_this);
-            } else {
-                $ret = static::withScope($cx, $_this, $context, $cb);
-            }
-
-            if (isset($data['data'])) {
-                $cx->data = $oldData;
-            }
-            return $ret;
-        };
-    }
-
-    /**
-     * Build the $inverse closure passed to HelperOptions for block helpers.
-     */
-    private static function makeInverseFn(RuntimeContext $cx, mixed $_this, ?\Closure $else): \Closure
-    {
-        return $else
-            ? function ($context = null) use ($cx, $_this, $else) {
-                if ($context === null) {
-                    return $else($cx, $_this);
-                }
-                return static::withScope($cx, $_this, $context, $else);
-            }
-        : fn() => '';
-    }
-
-    /**
-     * Apply blockHelperMissing semantics: if the helper returned a string/SafeString,
-     * pass it through; otherwise treat the return value as a section context.
-     */
-    private static function applyBlockHelperMissing(RuntimeContext $cx, mixed $result, mixed $_this, ?\Closure $cb, ?\Closure $else): string
+    private static function resolveBlockResult(RuntimeContext $cx, mixed $result, mixed $_this, ?\Closure $cb, ?\Closure $else): string
     {
         if (is_string($result) || $result instanceof SafeString) {
             return (string) $result;
         }
 
-        // $cb may be null (inverted block with no else clause) after the inversion swap in hbbch
-        return static::sec($cx, $result, [], $_this, false, $cb ?? static fn() => '', $else);
-    }
-
-    private static function withScope(RuntimeContext $cx, mixed $scope, mixed $context, \Closure $cb): string
-    {
-        $cx->scopes[] = $scope;
-        $ret = $cb($cx, $context);
-        array_pop($cx->scopes);
-        return $ret;
-    }
-
-    /**
-     * Execute custom helper with prepared options
-     *
-     * @param string $ch the name of custom helper to be executed
-     * @param array<array<mixed>> $vars variables for the helper
-     */
-    public static function exch(RuntimeContext $cx, string $ch, array $vars, HelperOptions $options): mixed
-    {
-        $args = $vars[0];
-        $args[] = $options;
-
-        try {
-            return ($cx->helpers[$ch])(...$args);
-        } catch (\Throwable $e) {
-            throw new \Exception("Custom helper '$ch' error: " . $e->getMessage());
+        // Arrays stringify like JS Array.prototype.toString(), regardless of fn block.
+        if (is_array($result)) {
+            return implode(',', $result);
         }
+
+        if ($cb === null) {
+            return ''; // can occur when compiled from an inverted block helper (e.g. {{^helper}}...{{/helper}})
+        }
+        return static::hbbch($cx, $cx->helpers['blockHelperMissing'], '', [$result], [], $_this, $cb, $else);
     }
 }

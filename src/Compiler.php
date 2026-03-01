@@ -32,10 +32,25 @@ final class Compiler
 
     /**
      * Compile-time stack of block param name arrays, innermost first.
-     * Only populated for constructs that push to $cx->blParam at runtime (currently #each).
+     * Populated for any block that declares block params (e.g. {{#each items as |item i|}}).
      * @var list<string[]>
      */
     private array $blockParamValues = [];
+
+    /**
+     * Stack of booleans, one per active compileProgram() call.
+     * Each entry is set to true if that invocation directly emitted a $blockParams reference.
+     * Used to distinguish direct references from nested closure declarations that merely contain
+     * '$blockParams' as a parameter name in the generated string.
+     * @var bool[]
+     */
+    private array $bpRefStack = [];
+
+    /**
+     * Set when compiling a program to reflect whether that compilation directly
+     * referenced $blockParams (as opposed to nesting a closure that does).
+     */
+    private bool $lastCompileProgramHadDirectBpRef = false;
 
     /**
      * True while compiling helper params/hash values.
@@ -51,16 +66,9 @@ final class Compiler
     {
         $this->context = $context;
         $this->blockParamValues = [];
-        return $this->compileBody($program);
-    }
-
-    private function compileBody(Program $program): string
-    {
-        $code = '';
-        foreach ($program->body as $statement) {
-            $code .= $this->accept($statement);
-        }
-        return $code;
+        $this->bpRefStack = [];
+        $this->lastCompileProgramHadDirectBpRef = false;
+        return $this->compileProgram($program);
     }
 
     /**
@@ -71,40 +79,41 @@ final class Compiler
     public function composePHPRender(string $code): string
     {
         $runtime = Runtime::class;
-        $helperOptions = HelperOptions::class;
-        $safeStringClass = SafeString::class;
-        $runtimeContext = RuntimeContext::class;
-        $helpers = Exporter::helpers($this->context);
         $partials = implode(",\n", $this->context->partialCode);
+        $closure = self::templateClosure($code, $partials, "\n \$in = &\$cx->data['root'];");
+        return "use {$runtime} as LR;\nreturn $closure;";
+    }
 
-        // Return generated PHP code string.
-        return <<<VAREND
-            use {$runtime} as LR;
-            use {$safeStringClass};
-            use {$helperOptions};
-            use {$runtimeContext};
-            return function (mixed \$in = null, array \$options = []) {
-                \$helpers = $helpers;
-                \$partials = [$partials];
-                \$partials = array_replace(\$partials, \$options['_partials'] ?? []);
-                foreach (\$options['partials'] ?? [] as \$name => \$p) {
-                    \$partials[\$name] = fn(RuntimeContext \$cx, mixed \$in) => \$p(\$in, ['_partials' => \$cx->partials, 'helpers' => \$cx->helpers, 'partialId' => \$cx->partialId]);
-                }
-                \$cx = new RuntimeContext(
-                    helpers: isset(\$options['helpers']) ? array_merge(\$helpers, \$options['helpers']) : \$helpers,
-                    partials: \$partials,
-                    data: isset(\$options['data']) ? array_merge(['root' => \$in], \$options['data']) : ['root' => \$in],
-                    partialId: \$options['partialId'] ?? 0,
-                );
-                \$in = &\$cx->data['root'];
-                return '$code';
-            };
-            VAREND;
+    /**
+     * Build a partial closure string: a Template-format closure that calls createContext
+     * with empty compiled partials, inheriting context from $partialContext.
+     * @param string $code PHP expression to return (e.g. the result of compileProgram())
+     * @param string $useVars comma-separated variables to capture (e.g. '$blockParams'), or '' for none
+     */
+    private static function templateClosure(string $code, string $partials = '', string $stmts = '', string $useVars = ''): string
+    {
+        $use = $useVars !== '' ? " use ($useVars)" : '';
+        return <<<PHP
+            function (mixed \$in = null, array \$options = [])$use {
+             \$cx = LR::createContext(\$in, \$options, [$partials]);
+             \$cx->frame['root'] = &\$cx->data['root'];$stmts
+             return $code;
+            }
+            PHP;
     }
 
     private function compileProgram(Program $program): string
     {
-        return "'" . $this->compileBody($program) . "'";
+        $this->bpRefStack[] = false;
+        $parts = [];
+        foreach ($program->body as $statement) {
+            $part = $this->accept($statement);
+            if ($part !== '' && $part !== "''") {
+                $parts[] = $part;
+            }
+        }
+        $this->lastCompileProgramHadDirectBpRef = array_pop($this->bpRefStack);
+        return $parts ? implode('.', $parts) : "''";
     }
 
     private function accept(Node $node): string
@@ -144,28 +153,15 @@ final class Compiler
         $helperName = $this->getSimpleHelperName($block->path);
 
         if ($helperName !== null) {
-            // Custom block helper takes priority
-            if ($this->resolveHelper($helperName)) {
+            if ($this->isKnownHelper($helperName)) {
                 return $this->compileBlockHelper($block, $helperName);
             }
 
-            // Built-in block helpers
-            switch ($helperName) {
-                case 'if':
-                    return $this->compileIf($block, false);
-                case 'unless':
-                    return $this->compileIf($block, true);
-                case 'each':
-                    return $this->compileEach($block);
-                case 'with':
-                    return $this->compileWith($block);
-            }
-
-            if ($block->params) {
-                if ($this->resolveHelper('helperMissing')) {
-                    return $this->compileBlockHelper($block, 'helperMissing', $helperName);
+            if ($block->params || $block->hash !== null) {
+                if ($this->context->options->knownHelpersOnly) {
+                    $this->throwKnownHelpersOnly($helperName);
                 }
-                throw new \Exception('Missing helper: "' . $helperName . '"');
+                return $this->compileDynamicBlockHelper($block, $helperName);
             }
         }
 
@@ -173,171 +169,147 @@ final class Compiler
         if ($block->path instanceof Literal) {
             $literalKey = $this->getLiteralKeyName($block->path);
 
-            if ($this->resolveHelper($literalKey)) {
+            if ($this->isKnownHelper($literalKey)) {
                 return $this->compileBlockHelper($block, $literalKey);
             }
 
             $escapedKey = self::quote($literalKey);
-            $miss = $this->missValue($literalKey);
-            $var = "\$in[$escapedKey] ?? $miss";
+            $var = "\$in[$escapedKey] ?? " . $this->missValue($literalKey);
 
             if ($block->program === null) {
-                // Inverted section: {{^"foo"}}...{{/"foo"}}
-                $body = $this->compileProgramOrEmpty($block->inverse);
-                return "'.(" . self::getRuntimeFunc('isec', $var) . " ? $body : '').'";
+                return $this->compileInvertedSection($block, $var, null);
             }
 
-            // Regular section: {{#"foo"}}...{{/"foo"}}
-            $body = $this->compileProgram($block->program);
-            $else = $this->compileElseClause($block);
-            return "'." . self::getRuntimeFunc('sec', "\$cx, $var, [], \$in, false, function(\$cx, \$in) {return $body;}$else") . ".'";
+            return $this->compileSection($block, $var, $escapedKey);
         }
+
+        $var = $this->compileExpression($block->path);
 
         // Inverted section: {{^var}}...{{/var}}
         if ($block->program === null) {
-            return $this->compileInvertedSection($block);
+            $escapedName = $helperName !== null ? self::quote($helperName) : null;
+            return $this->compileInvertedSection($block, $var, $escapedName);
         }
 
         // Non-simple path with params: invoke as a dynamic block helper call
         if ($block->params) {
-            return $this->compileDynamicBlockHelper($block);
-        }
-
-        // Block with hash but no positional params → helperMissing
-        if ($block->hash !== null && $this->resolveHelper('helperMissing')) {
-            return $this->compileBlockHelper($block, 'helperMissing', $block->path->original);
+            return $this->compileDynamicBlockHelper($block, (string) $block->path->original, $var);
         }
 
         // Regular section: {{#var}}...{{/var}}
-        return $this->compileSection($block);
+        return $this->compileSection($block, $var, self::quote($block->path->original));
     }
 
-    private function compileDynamicBlockHelper(BlockStatement $block): string
+    private function isKnownHelper(string $helperName): bool
     {
-        if (!$block->program) {
-            throw new \Exception('Dynamic block program must not be empty');
+        return $this->context->options->knownHelpers[$helperName] ?? false;
+    }
+
+    private function compileSection(BlockStatement $block, string $var, string $escapedName): string
+    {
+        assert($block->program !== null);
+
+        $blockFn = $this->compileProgramWithBlockParams($block->program);
+        $else = $this->compileElseClause($block);
+
+        if ($this->context->options->knownHelpersOnly) {
+            return self::getRuntimeFunc('sec', "\$cx, $var, \$in, $blockFn, $else");
         }
-        $varPath = $this->compileExpression($block->path);
+
         $bp = $block->program->blockParams;
-        $params = $this->compileParams($block->params, $block->hash, $bp ?: null);
-        $body = $this->compileProgramWithBlockParams($block->program, $bp);
-        $else = $this->compileElseClause($block);
-        $name = self::quote((string) $block->path->original);
-        return "'." . self::getRuntimeFunc('dynhbbch', "\$cx, $name, $varPath, $params, \$in, function(\$cx, \$in) {return $body;}$else") . ".'";
-    }
-
-    private function resolveHelper(string $helperName): bool
-    {
-        if (isset($this->context->helpers[$helperName])) {
-            $this->context->usedHelpers[$helperName] = true;
-            return true;
+        if ($block->hash !== null || $bp) {
+            $params = $this->compileParams([], $block->hash);
+            $outerBp = $this->outerBlockParamsExpr();
+            return self::getRuntimeFunc('dynhbbch', "\$cx, $escapedName, $var, $params, \$in, $blockFn, $else, " . count($bp) . ", $outerBp");
         }
 
-        return false;
+        return self::getRuntimeFunc('sec', "\$cx, $var, \$in, $blockFn, $else, $escapedName");
     }
 
-    private function compileIf(BlockStatement $block, bool $unless): string
+    private function compileInvertedSection(BlockStatement $block, string $var, ?string $escapedName): string
     {
-        if (count($block->params) !== 1) {
-            $helper = $unless ? '#unless' : '#if';
-            throw new \Exception("$helper requires exactly one argument");
-        }
-
-        $savedHelperArgs = $this->compilingHelperArgs;
-        $this->compilingHelperArgs = true;
-        $var = $this->compileExpression($block->params[0]);
-        $includeZero = $this->getIncludeZero($block->hash);
-        $this->compilingHelperArgs = $savedHelperArgs;
-
-        $then = $this->compileProgramOrEmpty($block->program);
-
-        if ($block->inverse && $block->inverse->chained) {
-            // {{else if ...}} chain — compile the inner block directly
-            $elseCode = '';
-            foreach ($block->inverse->body as $stmt) {
-                $elseCode .= $this->accept($stmt);
-            }
-            $else = "'" . $elseCode . "'";
-        } else {
-            $else = $this->compileProgramOrEmpty($block->inverse);
-        }
-
-        $negate = $unless ? '!' : '';
-        $dv = self::getRuntimeFunc('dv', "$var, \$in");
-        return "'.({$negate}" . self::getRuntimeFunc('ifvar', "$dv, $includeZero") . " ? $then : $else).'";
-    }
-
-    private function compileEach(BlockStatement $block): string
-    {
-        if (count($block->params) !== 1) {
-            throw new \Exception('Must pass iterator to #each');
-        }
-
-        $var = $this->compileExpression($block->params[0]);
-        [$bp, $bs] = $this->getProgramBlockParams($block->program);
-
-        $body = $block->program ? $this->compileProgramWithBlockParams($block->program, $bp) : "''";
-        $else = $this->compileElseClause($block);
-
-        $dv = self::getRuntimeFunc('dv', "$var, \$in");
-        return "'." . self::getRuntimeFunc('sec', "\$cx, $dv, $bs, \$in, true, function(\$cx, \$in) {return $body;}$else") . ".'";
-    }
-
-    private function compileWith(BlockStatement $block): string
-    {
-        if (count($block->params) !== 1) {
-            throw new \Exception('#with requires exactly one argument');
-        }
-
-        $var = $this->compileExpression($block->params[0]);
-        [$bp, $bs] = $this->getProgramBlockParams($block->program);
-
-        $body = $this->compileProgramOrEmpty($block->program);
-        $else = $this->compileElseClause($block);
-
-        $dv = self::getRuntimeFunc('dv', "$var, \$in");
-        return "'." . self::getRuntimeFunc('wi', "\$cx, $dv, $bs, \$in, function(\$cx, \$in) {return $body;}$else") . ".'";
-    }
-
-    private function compileSection(BlockStatement $block): string
-    {
-        $var = $this->compileExpression($block->path);
-        $escapedName = $block->path instanceof PathExpression ? self::quote($block->path->original) : 'null';
-
-        $body = $this->compileProgramOrEmpty($block->program);
-        $else = $this->compileElseClause($block);
-
-        if ($this->resolveHelper('blockHelperMissing')) {
-            return "'." . self::getRuntimeFunc('hbbch', "\$cx, 'blockHelperMissing', [[$var],[]], \$in, false, function(\$cx, \$in) {return $body;}$else, $escapedName") . ".'";
-        }
-
-        return "'." . self::getRuntimeFunc('sec', "\$cx, $var, [], \$in, false, function(\$cx, \$in) {return $body;}$else") . ".'";
-    }
-
-    private function compileInvertedSection(BlockStatement $block): string
-    {
-        $var = $this->compileExpression($block->path);
         $body = $this->compileProgramOrEmpty($block->inverse);
 
-        return "'.(" . self::getRuntimeFunc('isec', $var) . " ? $body : '').'";
-    }
-
-    private function compileBlockHelper(BlockStatement $block, string $helperName, ?string $missingName = null): string
-    {
-        $bp = $block->program->blockParams ?? $block->inverse->blockParams ?? [];
-        $params = $this->compileParams($block->params, $block->hash, $bp);
-        $escapedName = $missingName === null ? 'null' : self::quote($missingName);
-
-        if ($block->program === null) {
-            // inverted block
-            $body = $this->compileProgramOrEmpty($block->inverse);
-            return "'." . self::getRuntimeFunc('hbbch', "\$cx, '$helperName', $params, \$in, true, function(\$cx, \$in) {return $body;}, null, $escapedName") . ".'";
+        if ($escapedName !== null) {
+            $blockFn = self::blockClosure($body, inheritsBp: $this->lastCompileProgramHadDirectBpRef);
+            return self::getRuntimeFunc('isech', "\$cx, $var, \$in, $blockFn, $escapedName");
         }
 
-        $body = $this->compileProgramWithBlockParams($block->program, $bp);
-        $else = $this->compileElseClause($block);
+        return "(" . self::getRuntimeFunc('isec', $var) . " ? $body : '')";
+    }
 
-        return "'." . self::getRuntimeFunc('hbbch', "\$cx, '$helperName', $params, \$in, false, function(\$cx, \$in) {return $body;}$else, $escapedName") . ".'";
+    /** Returns '$blockParams' when inside a block-param scope (for use() capture), '' otherwise. */
+    private function blockParamsUseVars(): string
+    {
+        return $this->blockParamValues ? '$blockParams' : '';
+    }
+
+    /**
+     * Returns the PHP expression for the outer block param stack at the current compile-time scope.
+     * '$blockParams' when inside a bp-declaring block; '[]' otherwise (top-level for this each/helper).
+     * When returning '$blockParams', marks the current bpRefStack frame so the enclosing closure
+     * captures $blockParams via use(), even if it doesn't directly access block param values.
+     */
+    private function outerBlockParamsExpr(): string
+    {
+        if (!$this->blockParamValues) {
+            return '[]';
+        }
+        if ($this->bpRefStack) {
+            $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
+        }
+        return '$blockParams';
+    }
+
+    /**
+     * Compile a block program, pushing/popping its block params around the compilation.
+     */
+    private function compileProgramWithBlockParams(Program $program): string
+    {
+        $bp = $program->blockParams;
+        if ($bp) {
+            array_unshift($this->blockParamValues, $bp);
+        }
+        $body = $this->compileProgram($program);
+        if ($bp) {
+            array_shift($this->blockParamValues);
+        }
+        return self::blockClosure($body, (bool) $program->blockParams, $this->lastCompileProgramHadDirectBpRef);
+    }
+
+    private function compileBlockHelper(BlockStatement $block, string $name): string
+    {
+        $inverted = $block->program === null;
+        if ($inverted) {
+            assert($block->inverse !== null);
+        }
+        // For inverted blocks the fn body comes from the inverse program; for normal blocks, the program.
+        $fnProgram = $inverted ? $block->inverse : $block->program;
+        $blockFn = $this->compileProgramWithBlockParams($fnProgram);
+        [$fn, $else] = $inverted
+            ? ['null', $blockFn]
+            : [$blockFn, $this->compileElseClause($block)];
+
+        $outerBp = $this->outerBlockParamsExpr();
+        $params = $this->compileParams($block->params, $block->hash);
+        $helperName = self::quote($name);
+        $bpCount = count($fnProgram->blockParams);
+
+        $trailingArgs = ($bpCount > 0 || $outerBp !== '[]') ? ", $bpCount, $outerBp" : '';
+        return self::getRuntimeFunc('hbbch', "\$cx, \$cx->helpers[$helperName], $helperName, $params, \$in, $fn, $else$trailingArgs");
+    }
+
+    private function compileDynamicBlockHelper(BlockStatement $block, string $name, string $varPath = 'null'): string
+    {
+        $bp = $block->program->blockParams ?? [];
+        $params = $this->compileParams($block->params, $block->hash);
+        $blockFn = $block->program !== null
+            ? $this->compileProgramWithBlockParams($block->program)
+            : self::blockClosure("''");
+        $else = $this->compileElseClause($block);
+        $outerBp = $this->outerBlockParamsExpr();
+        $helperName = self::quote($name);
+        return self::getRuntimeFunc('dynhbbch', "\$cx, $helperName, $varPath, $params, \$in, $blockFn, $else, " . count($bp) . ", $outerBp");
     }
 
     private function DecoratorBlock(BlockStatement $block): string
@@ -362,7 +334,10 @@ final class Compiler
         // Do NOT add to partialCode - `in()` handles runtime registration, keeping inline partials block-scoped.
         $this->context->usedPartial[$partialName] = '';
 
-        return "'." . self::getRuntimeFunc('in', "\$cx, " . self::quote($partialName) . ", function(\$cx, \$in) {return $body;}") . ".'";
+        // Capture $blockParams if we're inside a block-param scope so the inline partial body can access them.
+        $useVars = $this->blockParamsUseVars();
+        $escapedName = self::quote($partialName);
+        return self::getRuntimeFunc('in', "\$cx, $escapedName, " . self::templateClosure($body, useVars: $useVars));
     }
 
     private function Decorator(Decorator $decorator): never
@@ -374,16 +349,13 @@ final class Compiler
     {
         $name = $statement->name;
 
-        if ($name instanceof PathExpression) {
-            $p = self::quote($name->original);
-            $this->resolveAndCompilePartial($name->original);
-        } elseif ($name instanceof SubExpression) {
+        if ($name instanceof SubExpression) {
             $p = $this->SubExpression($name);
             $this->context->usedDynPartial++;
-        } elseif ($name instanceof NumberLiteral || $name instanceof StringLiteral) {
-            $literalName = $this->getLiteralKeyName($name);
-            $p = self::quote($literalName);
-            $this->resolveAndCompilePartial($literalName);
+        } elseif ($name instanceof PathExpression || $name instanceof StringLiteral || $name instanceof NumberLiteral) {
+            $partialName = $name instanceof PathExpression ? $name->original : $this->getLiteralKeyName($name);
+            $p = self::quote($partialName);
+            $this->resolveAndCompilePartial($partialName);
         } else {
             $p = $this->compileExpression($name);
         }
@@ -395,10 +367,10 @@ final class Compiler
         // appendContent opcode) and invoke the partial with an empty indent so its lines are
         // not additionally indented.
         if ($this->context->options->preventIndent && $statement->indent !== '') {
-            return "'.$indent." . self::getRuntimeFunc('p', "\$cx, $p, $vars, 0, ''") . ".'";
+            return "$indent." . self::getRuntimeFunc('p', "\$cx, $p, $vars, 0, ''");
         }
 
-        return "'." . self::getRuntimeFunc('p', "\$cx, $p, $vars, 0, $indent") . ".'";
+        return self::getRuntimeFunc('p', "\$cx, $p, $vars, 0, $indent");
     }
 
     private function PartialBlockStatement(PartialBlockStatement $statement): string
@@ -409,21 +381,18 @@ final class Compiler
         // Hoist inline partial registrations so they run before the partial is called.
         // Without this, inline partials defined in the block would only be registered when
         // {{> @partial-block}} is invoked, too late for partials that call them directly.
-        $hoisted = '';
+        $hoistedParts = [];
         foreach ($statement->program->body as $stmt) {
             if ($stmt instanceof BlockStatement && $stmt->type === 'DecoratorBlock') {
-                $hoisted .= $this->accept($stmt);
+                $hoistedParts[] = $this->accept($stmt);
             }
         }
 
         $name = $statement->name;
         $body = $this->compileProgram($statement->program);
 
-        if ($name instanceof PathExpression) {
-            $partialName = $name->original;
-            $p = self::quote($partialName);
-        } elseif ($name instanceof StringLiteral || $name instanceof NumberLiteral) {
-            $partialName = $this->getLiteralKeyName($name);
+        if ($name instanceof PathExpression || $name instanceof StringLiteral || $name instanceof NumberLiteral) {
+            $partialName = $name instanceof PathExpression ? $name->original : $this->getLiteralKeyName($name);
             $p = self::quote($partialName);
         } else {
             $p = $this->compileExpression($name);
@@ -444,19 +413,25 @@ final class Compiler
             }
 
             if (!$found) {
-                // Register fallback body as the partial
-                $func = "function (\$cx, \$in) {return $body;}";
+                // Mark as known so LR::p() can resolve it at runtime.
                 $this->context->usedPartial[$partialName] = '';
-                $this->context->partialCode[$partialName] = self::quote($partialName) . " => $func";
+                // Don't add to partialCode — register via LR::in() at runtime so $blockParams
+                // is captured from the enclosing scope when block params are in use.
             }
         }
 
         $vars = $this->compilePartialParams($statement->params, $statement->hash);
 
-        return $hoisted
-            . "'."
-            . self::getRuntimeFunc('in', "\$cx, '@partial-block$pid', function(\$cx, \$in) {return $body;}") . "."
-            . self::getRuntimeFunc('p', "\$cx, $p, $vars, $pid, ''") . ".'";
+        // Capture $blockParams if we're inside a block-param scope so the partial block body can access them.
+        $useVars = $this->blockParamsUseVars();
+        $fallbackParts = ($partialName !== null && !$found)
+            ? [self::getRuntimeFunc('inFallback', "\$cx, " . self::quote($partialName) . ', ' . self::templateClosure($body, useVars: $useVars))]
+            : [];
+        $parts = [...$hoistedParts, ...$fallbackParts,
+            self::getRuntimeFunc('in', "\$cx, '@partial-block$pid', " . self::templateClosure($body, useVars: $useVars)),
+            self::getRuntimeFunc('p', "\$cx, $p, $vars, $pid, ''"),
+        ];
+        return implode('.', $parts);
     }
 
     private function MustacheStatement(MustacheStatement $mustache): string
@@ -468,79 +443,61 @@ final class Compiler
         if ($path instanceof PathExpression) {
             $helperName = $this->getSimpleHelperName($path);
 
-            // Registered helper
-            if ($helperName !== null && $this->resolveHelper($helperName)) {
-                $params = $this->compileParams($mustache->params, $mustache->hash);
-                $call = self::getRuntimeFunc('hbch', "\$cx, '$helperName', $params, \$in");
-                return "'." . self::getRuntimeFunc($fn, $call) . ".'";
+            if ($helperName !== null && ($this->isKnownHelper($helperName) || $mustache->params || $mustache->hash !== null)) {
+                $call = $this->buildInlineHelperCall($helperName, $mustache->params, $mustache->hash);
+                return self::getRuntimeFunc($fn, $call);
             }
 
-            // Built-in: lookup
-            if ($helperName === 'lookup') {
-                return $this->compileLookup($mustache, $raw);
-            }
-
-            // Built-in: log
-            if ($helperName === 'log') {
-                return $this->compileLog($mustache);
-            }
-
-            if ($mustache->params) {
+            if ($mustache->params || $mustache->hash !== null) {
                 // Non-simple path with params (data var or pathed expression): invoke via dv()
-                if ($helperName === null) {
-                    $varPath = $this->PathExpression($path);
-                    $args = array_map(fn($p) => $this->compileExpression($p), $mustache->params);
-                    $call = self::getRuntimeFunc('dv', "$varPath, " . implode(', ', $args));
-                    return "'." . self::getRuntimeFunc($fn, $call) . ".'";
-                }
-                if (!$this->context->options->strict && $this->resolveHelper('helperMissing')) {
-                    $params = $this->compileParams($mustache->params, $mustache->hash);
-                    $escapedName = self::quote($helperName);
-                    $call = self::getRuntimeFunc('hbch', "\$cx, 'helperMissing', $params, \$in, $escapedName");
-                    return "'." . self::getRuntimeFunc($fn, $call) . ".'";
-                }
-                throw new \Exception('Missing helper: "' . $helperName . '"');
+                $varPath = $this->PathExpression($path);
+                $args = array_map(fn($p) => $this->compileExpression($p), $mustache->params);
+                $call = self::getRuntimeFunc('dv', "$varPath, " . implode(', ', $args));
+                return self::getRuntimeFunc($fn, $call);
             }
 
-            // Plain variable — if helperMissing is registered, route missing identifiers to it
-            if ($helperName !== null && !$this->context->options->strict && $this->resolveHelper('helperMissing')) {
-                $bpIdx = $this->lookupBlockParam($helperName);
-                if ($bpIdx === null) {
-                    $escapedKey = self::quote($helperName);
-                    $hbch = self::getRuntimeFunc('hbch', "\$cx, 'helperMissing', [[],[]], \$in, $escapedKey");
-                    $val = "(is_array(\$in) && array_key_exists($escapedKey, \$in) ? \$in[$escapedKey] : $hbch)";
-                    return "'." . self::getRuntimeFunc($fn, $val) . ".'";
+            // When not strict/assumeObjects, check runtime helpers for bare identifiers.
+            if ($helperName !== null && !$this->context->options->strict && !$this->context->options->assumeObjects
+                && $this->lookupBlockParam($helperName) === null) {
+                $escapedKey = self::quote($helperName);
+                if ($this->context->options->knownHelpersOnly) {
+                    return self::getRuntimeFunc($fn, self::getRuntimeFunc('cv', "\$in, $escapedKey"));
                 }
+                return self::getRuntimeFunc($fn, self::getRuntimeFunc('hv', "\$cx, $escapedKey, \$in"));
             }
 
-            // Plain variable; wrap in dv() to support lambda context values
+            // Plain variable. Data variables (@foo) may be closures, so wrap in dv() to invoke
+            // them. Context variables (e.g. user.name) are never closures per the spec — all
+            // lambda tests use single-segment identifiers which go through hv()/cv() — and
+            // dv() doesn't pass context to them anyway, so skip it.
             $varPath = $this->PathExpression($path);
-            return "'." . self::getRuntimeFunc($fn, self::getRuntimeFunc('dv', $varPath)) . ".'";
+            if (!$path->data) {
+                return self::getRuntimeFunc($fn, $varPath);
+            }
+            return self::getRuntimeFunc($fn, self::getRuntimeFunc('dv', $varPath));
         }
 
         // Literal path — treat as named context lookup or helper call
         $literalKey = $this->getLiteralKeyName($path);
 
-        if ($this->resolveHelper($literalKey)) {
-            $params = $this->compileParams($mustache->params, $mustache->hash);
-            $escapedKey = self::quote($literalKey);
-            $call = self::getRuntimeFunc('hbch', "\$cx, $escapedKey, $params, \$in");
-            return "'." . self::getRuntimeFunc($fn, $call) . ".'";
-        }
-
-        if ($mustache->params) {
-            throw new \Exception('Missing helper: "' . $literalKey . '"');
+        if ($this->isKnownHelper($literalKey) || $mustache->params || $mustache->hash !== null) {
+            $call = $this->buildInlineHelperCall($literalKey, $mustache->params, $mustache->hash);
+            return self::getRuntimeFunc($fn, $call);
         }
 
         $escapedKey = self::quote($literalKey);
+
+        if (!$this->context->options->strict && !$this->context->options->knownHelpersOnly) {
+            return self::getRuntimeFunc($fn, self::getRuntimeFunc('hv', "\$cx, $escapedKey, \$in"));
+        }
+
         $miss = $this->missValue($literalKey);
-        $val = "\$in[$escapedKey] ?? $miss";
-        return "'." . self::getRuntimeFunc($fn, $val) . ".'";
+        return self::getRuntimeFunc($fn, "\$in[$escapedKey] ?? $miss");
     }
 
     private function ContentStatement(ContentStatement $statement): string
     {
-        return self::escape($statement->value);
+        return self::quote($statement->value);
     }
 
     private function CommentStatement(CommentStatement $statement): string
@@ -553,31 +510,17 @@ final class Compiler
     private function SubExpression(SubExpression $expression): string
     {
         $path = $expression->path;
-        $helperName = null;
+        $helperName = match (true) {
+            $path instanceof Literal => $this->getLiteralKeyName($path),
+            $path instanceof PathExpression => $this->getSimpleHelperName($path),
+            default => null,
+        };
 
-        if ($path instanceof PathExpression) {
-            $helperName = $this->getSimpleHelperName($path);
-        } elseif ($path instanceof Literal) {
-            $helperName = $this->getLiteralKeyName($path);
+        if ($helperName === null) {
+            throw new \Exception('Sub-expression must be a helper call');
         }
 
-        // Registered helper
-        if ($helperName !== null && $this->resolveHelper($helperName)) {
-            $params = $this->compileParams($expression->params, $expression->hash);
-            $escapedName = self::quote($helperName);
-            return self::getRuntimeFunc('hbch', "\$cx, $escapedName, $params, \$in");
-        }
-
-        // Built-in: lookup (as subexpression)
-        if ($helperName === 'lookup') {
-            return $this->getWithLookup($expression->params[0], $expression->params[1]);
-        }
-
-        if ($helperName !== null) {
-            throw new \Exception('Missing helper: "' . $helperName . '"');
-        }
-
-        throw new \Exception('Sub-expression must be a helper call');
+        return $this->buildInlineHelperCall($helperName, $expression->params, $expression->hash);
     }
 
     private function PathExpression(PathExpression $expression): string
@@ -605,11 +548,15 @@ final class Compiler
 
         // Check block params (depth-0, non-data, non-scoped paths only)
         if (!$data && $depth === 0 && !self::scopedId($expression)) {
-            $bpIdx = $this->lookupBlockParam($stringParts[0]);
-            if ($bpIdx !== null) {
-                $escapedName = self::quote($stringParts[0]);
-                $bpBase = "\$cx->blParam[$bpIdx][$escapedName]";
+            $bp = $this->lookupBlockParam($stringParts[0]);
+            if ($bp !== null) {
+                [$bpDepth, $bpIndex] = $bp;
+                $bpBase = "\$blockParams[$bpDepth][$bpIndex]";
                 $remaining = self::buildKeyAccess(array_slice($stringParts, 1));
+                // Mark the current compileProgram() level as having a direct $blockParams reference.
+                if ($this->bpRefStack) {
+                    $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
+                }
                 return "$bpBase$remaining ?? $miss";
             }
         }
@@ -659,7 +606,8 @@ final class Compiler
             $escapedOriginal = self::quote($expression->original);
             $expr = $base;
             foreach ($stringParts as $part) {
-                $expr = self::getRuntimeFunc('strictLookup', "$expr, " . self::quote($part) . ", $escapedOriginal");
+                $escapedKey = self::quote($part);
+                $expr = self::getRuntimeFunc('strictLookup', "$expr, $escapedKey, $escapedOriginal");
             }
             return $expr;
         }
@@ -709,19 +657,17 @@ final class Compiler
     }
 
     /**
-     * Find the $cx->blParam index for a block param name, or null if not a block param.
-     * Iterates blockParamValues from innermost to outermost; only non-empty levels
-     * increment the runtime blParam index.
+     * Return [$depth, $index] if $name is a block param in any enclosing scope, null otherwise.
+     * $depth=0 is the innermost scope; each outer scope increments $depth.
+     * @return array{int,int}|null
      */
-    private function lookupBlockParam(string $name): ?int
+    private function lookupBlockParam(string $name): ?array
     {
-        $blParamIndex = 0;
-        foreach ($this->blockParamValues as $levelParams) {
-            if (in_array($name, $levelParams, true)) {
-                return $blParamIndex;
-            }
-            if ($levelParams) {
-                $blParamIndex++;
+        foreach ($this->blockParamValues as $depth => $levelParams) {
+            $index = array_search($name, $levelParams, true);
+            if ($index !== false) {
+                assert(is_int($index));
+                return [$depth, $index];
             }
         }
         return null;
@@ -789,8 +735,7 @@ final class Compiler
         $code = (new Compiler($this->parser))->compile($program, $tmpContext);
         $this->context->merge($tmpContext);
 
-        $func = "function (\$cx, \$in) {return '$code';}";
-        $this->context->partialCode[$name] = self::quote($name) . " => $func";
+        $this->context->partialCode[$name] = self::quote($name) . ' => ' . self::templateClosure($code);
     }
 
     public function handleDynamicPartials(): void
@@ -807,12 +752,12 @@ final class Compiler
     // ── Helpers ──────────────────────────────────────────────────────
 
     /**
-     * Build the [[positional],[named]] or [[positional],[named],[blockParams]] param format.
+     * Build the positional and named param components as separate arguments.
+     * Returns '[$a,$b], [hash]'.
      *
      * @param Expression[] $params
-     * @param string[]|null $blockParams
      */
-    private function compileParams(array $params, ?Hash $hash, ?array $blockParams = null): string
+    private function compileParams(array $params, ?Hash $hash): string
     {
         $savedHelperArgs = $this->compilingHelperArgs;
         $this->compilingHelperArgs = true;
@@ -825,12 +770,11 @@ final class Compiler
         $named = $hash ? $this->Hash($hash) : '';
         $this->compilingHelperArgs = $savedHelperArgs;
 
-        $bp = $blockParams ? ',' . self::listString($blockParams) : '';
-        return '[[' . implode(',', $positional) . '],[' . $named . "]$bp]";
+        return '[' . implode(',', $positional) . '], [' . $named . ']';
     }
 
     /**
-     * Build params for partial calls: [[$context],[named]].
+     * Build context and hash arguments for partial calls: "$context, [named]".
      *
      * @param Expression[] $params
      */
@@ -844,7 +788,7 @@ final class Compiler
 
         $named = $hash ? $this->Hash($hash) : '';
 
-        return "[[$contextVar],[$named]]";
+        return "$contextVar, [$named]";
     }
 
     /**
@@ -876,29 +820,15 @@ final class Compiler
     }
 
     /**
-     * Compile the else/inverse clause of a block as a trailing closure argument, or '' if absent.
+     * Compile the else/inverse clause of a block as a trailing closure argument, or 'null' if absent.
      */
     private function compileElseClause(BlockStatement $block): string
     {
-        return $block->inverse
-            ? ", function(\$cx, \$in) {return " . $this->compileProgram($block->inverse) . ";}"
-            : ', null';
-    }
-
-    /**
-     * Compile a block program, pushing/popping block params around the compilation.
-     * @param string[] $bp
-     */
-    private function compileProgramWithBlockParams(Program $program, array $bp): string
-    {
-        if ($bp) {
-            array_unshift($this->blockParamValues, $bp);
+        if (!$block->inverse) {
+            $this->lastCompileProgramHadDirectBpRef = false;
+            return 'null';
         }
-        $body = $this->compileProgram($program);
-        if ($bp) {
-            array_shift($this->blockParamValues);
-        }
-        return $body;
+        return $this->compileProgramWithBlockParams($block->inverse);
     }
 
     /**
@@ -906,11 +836,11 @@ final class Compiler
      */
     private function buildBasePath(bool $data, int $depth): string
     {
-        $base = $data ? '$cx->data' : '$in';
+        $base = $data ? '$cx->frame' : '$in';
         if ($depth > 0) {
             $base = $data
                 ? $base . str_repeat("['_parent']", $depth)
-                : "\$cx->scopes[count(\$cx->scopes)-$depth]";
+                : "\$cx->depths[count(\$cx->depths)-$depth]";
         }
         return $base;
     }
@@ -937,23 +867,30 @@ final class Compiler
         return "LR::$name($args)";
     }
 
-    private static function escape(string $string): string
+    /**
+     * @param bool $declaresBp  true when this closure receives new block param values as its third argument
+     * @param bool $inheritsBp  true when this closure must capture $blockParams from the enclosing scope
+     */
+    private static function blockClosure(string $body, bool $declaresBp = false, bool $inheritsBp = false): string
     {
-        return addcslashes($string, "'\\");
+        $preamble = '';
+        if (str_contains($body, '$cx->depths[count($cx->depths)-')) {
+            $preamble = '$sc=count($cx->depths);';
+            $body = str_replace('$cx->depths[count($cx->depths)-', '$cx->depths[$sc-', $body);
+        }
+        if ($declaresBp) {
+            return "function(\$cx, \$in, array \$blockParams = []) {{$preamble}return $body;}";
+        }
+        if ($inheritsBp) {
+            // Inherits block params from the enclosing closure's $blockParams variable.
+            return "function(\$cx, \$in) use (\$blockParams) {{$preamble}return $body;}";
+        }
+        return "function(\$cx, \$in) {{$preamble}return $body;}";
     }
 
     private static function quote(string $string): string
     {
-        return "'" . self::escape($string) . "'";
-    }
-
-    /**
-     * Get string presentation for a string list
-     * @param string[] $list
-     */
-    private static function listString(array $list): string
-    {
-        return '[' . implode(',', array_map(self::quote(...), $list)) . ']';
+        return "'" . addcslashes($string, "'\\") . "'";
     }
 
     private function missValue(string $key): string
@@ -963,17 +900,35 @@ final class Compiler
             : 'null';
     }
 
-    /** @return array{string[], string} [$bp, $bs] */
-    private function getProgramBlockParams(?Program $program): array
-    {
-        $bp = $program ? $program->blockParams : [];
-        $bs = self::listString($bp);
-        return [$bp, $bs];
-    }
-
     private function compileProgramOrEmpty(?Program $program): string
     {
-        return $program ? $this->compileProgram($program) : "''";
+        if (!$program) {
+            $this->lastCompileProgramHadDirectBpRef = false;
+            return "''";
+        }
+        return $this->compileProgram($program);
+    }
+
+    private function throwKnownHelpersOnly(string $helperName): never
+    {
+        throw new \Exception("You specified knownHelpersOnly, but used the unknown helper $helperName");
+    }
+
+    /**
+     * Build an hbch (known) or dynhbch (unknown) inline helper call string.
+     * @param Expression[] $params
+     */
+    private function buildInlineHelperCall(string $name, array $params, ?Hash $hash): string
+    {
+        $compiledParams = $this->compileParams($params, $hash);
+        $helperName = self::quote($name);
+        if ($this->isKnownHelper($name)) {
+            return self::getRuntimeFunc('hbch', "\$cx, \$cx->helpers[$helperName], $helperName, $compiledParams, \$in");
+        }
+        if ($this->context->options->knownHelpersOnly) {
+            $this->throwKnownHelpersOnly($name);
+        }
+        return self::getRuntimeFunc('dynhbch', "\$cx, $helperName, $compiledParams, \$in");
     }
 
     /**
@@ -984,78 +939,5 @@ final class Compiler
     private static function stringPartsOf(array $parts): array
     {
         return array_values(array_filter($parts, fn($p) => is_string($p)));
-    }
-
-    /**
-     * Get includeZero value from hash.
-     */
-    private function getIncludeZero(?Hash $hash): string
-    {
-        if ($hash) {
-            foreach ($hash->pairs as $pair) {
-                if ($pair->key === 'includeZero') {
-                    return $this->compileExpression($pair->value);
-                }
-            }
-        }
-        return 'false';
-    }
-
-    /**
-     * Compile {{lookup items idx}} in mustache context.
-     */
-    private function compileLookup(MustacheStatement $mustache, bool $raw): string
-    {
-        $fn = $raw ? 'raw' : 'encq';
-
-        if (count($mustache->params) !== 2) {
-            throw new \Exception('{{lookup}} requires 2 arguments');
-        }
-
-        $itemsExpr = $mustache->params[0];
-        $idxExpr = $mustache->params[1];
-        $varCode = $this->getWithLookup($itemsExpr, $idxExpr);
-
-        return "'." . self::getRuntimeFunc($fn, $varCode) . ".'";
-    }
-
-    /**
-     * Compile a path with an additional dynamic lookup segment.
-     */
-    private function compilePathWithLookup(PathExpression $path, string $lookupCode): string
-    {
-        $data = $path->data;
-        $depth = $path->depth;
-        $parts = self::stringPartsOf($path->parts);
-
-        $base = $this->buildBasePath($data, $depth);
-        $n = self::buildKeyAccess($parts);
-
-        $miss = $this->missValue($path->original);
-
-        return $base . $n . "[$lookupCode] ?? $miss";
-    }
-
-    /**
-     * Compile {{log ...}} built-in.
-     */
-    private function compileLog(MustacheStatement $mustache): string
-    {
-        $params = $this->compileParams($mustache->params, $mustache->hash);
-        return "'." . self::getRuntimeFunc('lo', $params) . ".'";
-    }
-
-    private function getWithLookup(Expression $itemsExpr, Expression $idxExpr): string
-    {
-        $idxCode = $this->compileExpression($idxExpr);
-
-        if ($itemsExpr instanceof PathExpression) {
-            $varCode = $this->compilePathWithLookup($itemsExpr, $idxCode);
-        } else {
-            $itemsCode = $this->compileExpression($itemsExpr);
-            $miss = $this->missValue('lookup');
-            $varCode = $itemsCode . "[$idxCode] ?? $miss";
-        }
-        return $varCode;
     }
 }

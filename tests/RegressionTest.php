@@ -98,16 +98,11 @@ class RegressionTest extends TestCase
     #[DataProvider("syntaxProvider")]
     public function testIssues(string $template, string $expected, string $desc = '', mixed $data = null, ?Options $options = null, array $helpers = []): void
     {
-        if ($helpers && $options?->partials) {
-            $options = new Options(helpers: $helpers, partials: $options->partials);
-        }
-
-        $options = $options ?? new Options(helpers: $helpers);
-        $templateSpec = Handlebars::precompile($template, $options);
+        $templateSpec = Handlebars::precompile($template, $options ?? new Options());
 
         try {
             $template = Handlebars::template($templateSpec);
-            $result = $template($data);
+            $result = $template($data, ['helpers' => $helpers]);
         } catch (\Throwable $e) {
             $this->fail("$desc\nError: {$e->getMessage()}\nPHP code:\n$templateSpec");
         }
@@ -374,9 +369,9 @@ class RegressionTest extends TestCase
                 'template' => '{{#each array}}#{{#if true}}{{name}}-{{../name}}-{{../../name}}-{{../../../name}}{{/if}}##{{#myif true}}{{name}}={{../name}}={{../../name}}={{../../../name}}{{/myif}}###{{#mywith true}}{{name}}~{{../name}}~{{../../name}}~{{../../../name}}{{/mywith}}{{/each}}',
                 'data' => ['name' => 'john', 'array' => [1, 2, 3]],
                 'helpers' => ['myif' => $myIf, 'mywith' => $myWith],
-                // PENDING ISSUE, check for https://github.com/wycats/handlebars.js/issues/1135
-                // 'expected' => '#--john-##==john=###~~john~#--john-##==john=###~~john~#--john-##==john=###~~john~',
-                'expected' => '#-john--##=john==###~~john~#-john--##=john==###~~john~#-john--##=john==###~~john~',
+                // HBS.js output is different due to context coercion (https://github.com/handlebars-lang/handlebars.js/issues/1135):
+                // 'expected' => '#-john--##==john=###~john~~#-john--##==john=###~~john~#-john--##==john=###~~john~'
+                'expected' => '#-john--##==john=###~~john~#-john--##==john=###~~john~#-john--##==john=###~~john~',
             ],
 
             [
@@ -806,6 +801,52 @@ class RegressionTest extends TestCase
                     'helper' => fn(HelperOptions $options) => $options->hash['fizz'],
                 ],
                 'expected' => 'buzz',
+            ],
+
+            [
+                'desc' => 'inverted helpers should support block params',
+                'template' => '{{^helper items as |foo bar baz|}}{{foo}}{{bar}}{{baz}}{{/helper}}',
+                'helpers' => [
+                    'helper' => function (array $items, HelperOptions $options) {
+                        return $options->inverse(null, ['blockParams' => [1, 2, 3]]);
+                    },
+                ],
+                'data' => ['items' => []],
+                'expected' => '123',
+            ],
+            [
+                'desc' => 'inverted block helper returning truthy non-string: stringified like JS',
+                'template' => '{{^helper}}block{{/helper}}',
+                'helpers' => ['helper' => fn() => ['truthy', 'array']],
+                'expected' => 'truthy,array',
+            ],
+            [
+                'desc' => 'block helper returning truthy non-string: stringified like JS',
+                'template' => '{{#helper}}block{{/helper}}',
+                'helpers' => ['helper' => fn() => ['truthy', 'array']],
+                'expected' => 'truthy,array',
+            ],
+            [
+                'desc' => 'inverted known block helper returning truthy non-string: stringified like JS',
+                'template' => '{{^helper}}block{{/helper}}',
+                'options' => new Options(knownHelpers: ['helper' => true]),
+                'helpers' => ['helper' => fn() => ['truthy', 'array']],
+                'expected' => 'truthy,array',
+            ],
+            [
+                'desc' => 'known block helper returning truthy non-string: stringified like JS',
+                'template' => '{{#helper}}block{{/helper}}',
+                'options' => new Options(knownHelpers: ['helper' => true]),
+                'helpers' => ['helper' => fn() => ['truthy', 'array']],
+                'expected' => 'truthy,array',
+            ],
+
+            [
+                'desc' => 'literal block path helper names should be correctly escaped',
+                'template' => '{{#"it\'s"}}YES{{/"it\'s"}}',
+                'options' => new Options(knownHelpers: ["it's" => true]),
+                'helpers' => ["it's" => fn(HelperOptions $options) => $options->fn()],
+                'expected' => 'YES',
             ],
 
             [
@@ -1310,6 +1351,13 @@ class RegressionTest extends TestCase
             ],
 
             [
+                'desc' => 'inverted each: non-empty array renders nothing',
+                'template' => '{{^each items}}EMPTY{{/each}}',
+                'data' => ['items' => ['a', 'b']],
+                'expected' => '',
+            ],
+            [
+                'desc' => 'inverted each: empty array renders body',
                 'template' => '{{^each items}}EMPTY{{/each}}',
                 'data' => ['items' => []],
                 'expected' => 'EMPTY',
@@ -1805,10 +1853,22 @@ class RegressionTest extends TestCase
                 'expected' => '123',
             ],
             [
+                'desc' => 'non-empty list in a section with {{else}} must iterate, not show the else branch',
+                'template' => '{{#items}}{{.}},{{else}}empty{{/items}}',
+                'data' => ['items' => ['a', 'b', 'c']],
+                'expected' => 'a,b,c,',
+            ],
+            [
                 'desc' => 'LNC#159 - Empty ArrayObject in section',
                 'template' => '{{#.}}true{{else}}false{{/.}}',
                 'data' => new \ArrayObject(),
                 'expected' => "false",
+            ],
+            [
+                'desc' => 'non-empty ArrayObject in a section with {{else}} must iterate',
+                'template' => '{{#.}}{{@index}}:{{.}},{{else}}empty{{/.}}',
+                'data' => new \ArrayObject(['x', 'y']),
+                'expected' => '0:x,1:y,',
             ],
             [
                 'desc' => 'LNC#278 - non-boolean conditionals in mustache',
@@ -1837,6 +1897,20 @@ class RegressionTest extends TestCase
                 'options' => new Options(knownHelpersOnly: true),
                 'data' => ['items' => []],
                 'expected' => 'NO',
+            ],
+            [
+                'desc' => 'non-empty array renders fn block even when else is present',
+                'template' => '{{#items}}{{@index}}: {{.}}{{#if @last}}last!{{else}}, {{/if}}{{else}}NO{{/items}}',
+                'options' => new Options(knownHelpersOnly: true),
+                'data' => ['items' => ['a', 'b']],
+                'expected' => '0: a, 1: blast!',
+            ],
+            [
+                'desc' => 'inline partials registered inside a block section do not leak out after the block ends',
+                'template' => '{{#* inline "p"}}BEFORE{{/inline}}{{#section}}{{#* inline "p"}}INSIDE{{/inline}}{{> p}}{{/section}}{{> p}}',
+                'options' => new Options(knownHelpersOnly: true),
+                'data' => ['section' => ['x' => 1]],
+                'expected' => 'INSIDEBEFORE',
             ],
         ];
     }
@@ -1941,6 +2015,20 @@ class RegressionTest extends TestCase
                 'template' => '{{#foo}}OK{{else}}bad{{/foo}}',
                 'data' => ['foo' => 'is_string'],
                 'expected' => 'OK',
+            ],
+
+            [
+                'desc' => 'closures in data can be used like helpers',
+                'template' => '{{test "Hello"}}',
+                'data' => ['test' => fn(string $arg) => "$arg runtime data"],
+                'expected' => 'Hello runtime data',
+            ],
+            [
+                'desc' => 'helpers always take precedence over data closures',
+                'template' => '{{test "Hello"}}',
+                'data' => ['test' => fn(string $arg) => "$arg runtime data"],
+                'helpers' => ['test' => fn(string $arg) => "$arg runtime helper"],
+                'expected' => 'Hello runtime helper',
             ],
         ];
     }
