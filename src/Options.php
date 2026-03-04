@@ -9,7 +9,7 @@ readonly class Options
     /**
      * @param array<string, callable> $helpers
      * @param array<string, string> $partials
-     * @param null|Closure(Context, string):(string|null) $partialResolver
+     * @param null|Closure(string):(string|null) $partialResolver
      */
     public function __construct(
         public bool $knownHelpersOnly = false,
