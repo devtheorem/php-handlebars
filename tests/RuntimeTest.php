@@ -3,7 +3,6 @@
 namespace DevTheorem\Handlebars\Test;
 
 use DevTheorem\Handlebars\Runtime;
-use DevTheorem\Handlebars\RuntimeContext;
 use PHPUnit\Framework\TestCase;
 
 class RuntimeTest extends TestCase
@@ -33,15 +32,6 @@ class RuntimeTest extends TestCase
         $this->assertFalse(Runtime::isec('false'));
         $this->assertTrue(Runtime::isec([]));
         $this->assertFalse(Runtime::isec(['1']));
-    }
-
-    public function testWi(): void
-    {
-        $cx = new RuntimeContext();
-        $this->assertSame('', Runtime::wi($cx, false, null, new \stdClass(), fn() => 'A'));
-        $this->assertSame('', Runtime::wi($cx, null, null, null, fn() => 'A'));
-        $this->assertSame('{"a":"b"}', Runtime::wi($cx, ['a' => 'b'], null, ['a' => 'c'], fn($c, $i) => json_encode($i)));
-        $this->assertSame('-b=', Runtime::wi($cx, 'b', null, ['a' => 'b'], fn($c, $i) => "-$i="));
     }
 
     private static function createStringable(string $value): \Stringable

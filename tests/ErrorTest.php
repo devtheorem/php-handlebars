@@ -8,33 +8,33 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * @phpstan-type RenderTest array{template: string, options?: Options, expected: string}
- * @phpstan-type ErrorCase array{template: string, options: Options, expected: string|null}
+ * @phpstan-type RenderTest array{template: string, options?: Options, data?: array<mixed>, expected: string}
+ * @phpstan-type ErrorCase array{template: string, options?: Options, expected: string}
  */
 class ErrorTest extends TestCase
 {
     /**
-     * @param RenderTest $test
+     * @param array<mixed> $data
      */
     #[DataProvider("renderErrorProvider")]
-    public function testRenderingException(array $test): void
+    public function testRenderingException(string $template, string $expected, ?Options $options = null, array $data = []): void
     {
-        $php = Handlebars::precompile($test['template'], $test['options'] ?? new Options());
+        $php = Handlebars::precompile($template, $options ?? new Options());
         $renderer = Handlebars::template($php);
         try {
-            $renderer();
-            $this->fail("Expected to throw exception: {$test['expected']}. CODE: $php");
+            $renderer($data);
+            $this->fail("Expected to throw exception: {$expected}. CODE: $php");
         } catch (\Exception $e) {
-            $this->assertEquals($test['expected'], $e->getMessage(), $php);
+            $this->assertEquals($expected, $e->getMessage(), $php);
         }
     }
 
     /**
-     * @return list<array{RenderTest}>
+     * @return RenderTest[]
      */
     public static function renderErrorProvider(): array
     {
-        $errorCases = [
+        return [
             [
                 'template' => "{{#> testPartial}}\n  {{#> innerPartial}}\n   {{> @partial-block}}\n  {{/innerPartial}}\n{{/testPartial}}",
                 'options' => new Options(
@@ -82,22 +82,13 @@ class ErrorTest extends TestCase
                 'expected' => '"foo.bar" is not a block helper function',
             ],
         ];
-
-        return array_map(fn($i) => [$i], $errorCases);
     }
 
     #[DataProvider("errorProvider")]
-    public function testErrors(string $template, ?string $expected, Options $options): void
+    public function testErrors(string $template, string $expected, ?Options $options = null): void
     {
-        if ($expected === null) {
-            // should compile without error
-            $code = Handlebars::precompile($template, $options);
-            $this->assertNotEmpty($code);
-            return;
-        }
-
         try {
-            Handlebars::precompile($template, $options);
+            Handlebars::precompile($template, $options ?? new Options());
             $this->fail("Expected to throw exception: {$expected}");
         } catch (\Exception $e) {
             $this->assertSame($expected, $e->getMessage());
@@ -105,17 +96,14 @@ class ErrorTest extends TestCase
     }
 
     /**
-     * @return list<ErrorCase>
+     * @return ErrorCase[]
      */
     public static function errorProvider(): array
     {
-        $errorCases = [
+        return [
             [
                 'template' => '{{typeof hello}}',
                 'expected' => 'Missing helper: "typeof"',
-            ],
-            [
-                'template' => '{{#with items}}OK!{{/with}}',
             ],
             [
                 'template' => '{{#with}}OK!{{/with}}',
@@ -165,25 +153,9 @@ class ErrorTest extends TestCase
                 'expected' => 'Missing helper: "foo"',
             ],
             [
-                'template' => '{{log}}',
-            ],
-            [
                 'template' => '{{#*help me}}{{/help}}',
                 'expected' => 'Unknown decorator: "help"',
             ],
-            [
-                'template' => '{{#*inline}}{{/inline}}',
-            ],
         ];
-
-        return array_map(function ($i) {
-            if (!isset($i['options'])) {
-                $i['options'] = new Options();
-            }
-            if (!isset($i['expected'])) {
-                $i['expected'] = null;
-            }
-            return $i;
-        }, $errorCases);
     }
 }

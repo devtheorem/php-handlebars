@@ -26,9 +26,9 @@ class Utils
 /**
  * @phpstan-type JsonSpec array{
  *     file: string, no: int, message: string|null, data: null|int|bool|string|array<mixed>,
- *     it: string, description: string, expected?: string, helpers?: array<mixed>,
- *     partials?: array<mixed>, compileOptions?: array<mixed>, template: string,
- *     exception?: string, runtimeOptions?: array<mixed>, number?: string,
+ *     it: string, description: string, expected: string|null, helpers: array<mixed>,
+ *     partials: array<mixed>, compileOptions: array<mixed>, template: string,
+ *     exception: string|null, runtimeOptions: array<mixed>, number: string|null,
  * }
  */
 class HandlebarsSpecTest extends TestCase
@@ -76,13 +76,13 @@ class HandlebarsSpecTest extends TestCase
         }
 
         // FIX SPEC
-        if ($spec['it'] === 'helper block with complex lookup expression') {
+        if ($spec['it'] === 'helper block with complex lookup expression' && isset($spec['helpers']['goodbyes']['php'])) {
             $spec['helpers']['goodbyes']['php'] = str_replace('$options->fn();', '$options->fn([]);', $spec['helpers']['goodbyes']['php']);
         }
         if ($spec['it'] === 'should take presednece over parent block params') {
             $spec['helpers']['goodbyes']['php'] = 'function($options) { static $value; if ($value === null) { $value = 1; } return $options->fn(["value" => "bar"], ["blockParams" => $options->blockParams === 1 ? [$value++, $value++] : null]);}';
         }
-        if ($spec['it'] === 'Functions are bound to the context in knownHelpers only mode') {
+        if ($spec['it'] === 'Functions are bound to the context in knownHelpers only mode' && is_array($spec['data'])) {
             $spec['data']['foo']['php'] = 'function($options) { return $options->scope[\'bar\']; }';
         }
 
@@ -93,14 +93,14 @@ class HandlebarsSpecTest extends TestCase
         $this->tested++;
         $helpers = [];
         $helpersList = '';
-        foreach (is_array($spec['helpers'] ?? null) ? $spec['helpers'] : [] as $name => $func) {
+        foreach ($spec['helpers'] as $name => $func) {
             if (!isset($func['php'])) {
                 $this->markTestIncomplete("Skip [{$spec['file']}#{$spec['description']}]#{$spec['no']} , no PHP helper code provided for this case.");
             }
-            $hname = preg_replace('/[.\\/]/', '_', "custom_helper_{$spec['no']}_{$this->tested}_$name");
-            $helpers[$name] = $hname;
+            $helperName = preg_replace('/[.\\/]/', '_', "custom_helper_{$spec['no']}_{$this->tested}_$name");
+            $helpers[$name] = $helperName;
             $helper = self::patchSafeString(
-                preg_replace('/function/', "function $hname", $func['php'], 1),
+                preg_replace('/function/', "function $helperName", $func['php'], 1),
             );
             $helper = str_replace('$options[\'name\']', '$options->name', $helper);
             $helper = str_replace('$options[\'data\']', '$options->data', $helper);
@@ -125,8 +125,9 @@ class HandlebarsSpecTest extends TestCase
                 preventIndent: $preventIndent,
                 ignoreStandalone: $ignoreStandalone,
                 explicitPartialContext: $explicitPartialContext,
+                /** @phpstan-ignore argument.type */
                 helpers: $helpers,
-                partials: $spec['partials'] ?? [],
+                partials: $spec['partials'],
             ));
         } catch (\Exception $e) {
             if (isset($spec['exception'])) {
@@ -184,24 +185,41 @@ class HandlebarsSpecTest extends TestCase
         // https://github.com/handlebars-lang/handlebars.js/pull/1148
         $skip = ['parser', 'tokenizer', 'string-params', 'track-ids'];
 
-        foreach (glob('vendor/jbboehr/handlebars-spec/spec/*.json') as $file) {
+        $files = glob('vendor/jbboehr/handlebars-spec/spec/*.json');
+        if ($files === false) {
+            throw new Exception("Failed to read JSON spec files");
+        }
+
+        foreach ($files as $file) {
             $name = basename($file, '.json');
             if (in_array($name, $skip)) {
                 continue;
             }
+            $contents = file_get_contents($file);
+            if ($contents === false) {
+                throw new Exception("Failed to read JSON spec file {$file}");
+            }
             $i = 0;
-            $json = json_decode(file_get_contents($file), true);
-            $ret = array_merge($ret, array_map(function (array $d) use ($file, &$i) {
-                $d['file'] = $file;
-                $d['no'] = ++$i;
-                if (!isset($d['message'])) {
-                    $d['message'] = null;
-                }
-                if (!isset($d['data'])) {
-                    $d['data'] = null;
-                }
-                return [$d];
-            }, $json));
+            $json = json_decode($contents, true);
+
+            foreach ($json as $spec) {
+                $ret[] = [[
+                    'file' => $file,
+                    'no' => ++$i,
+                    'message' => $spec['message'] ?? null,
+                    'data' => $spec['data'] ?? null,
+                    'it' => $spec['it'] ?? '',
+                    'description' => $spec['description'] ?? '',
+                    'expected' => $spec['expected'] ?? null,
+                    'helpers' => $spec['helpers'] ?? [],
+                    'partials' => $spec['partials'] ?? [],
+                    'compileOptions' => $spec['compileOptions'] ?? [],
+                    'template' => $spec['template'] ?? '',
+                    'exception' => $spec['exception'] ?? null,
+                    'runtimeOptions' => $spec['runtimeOptions'] ?? [],
+                    'number' => $spec['number'] ?? null,
+                ]];
+            }
         }
 
         return $ret;
@@ -259,6 +277,7 @@ class HandlebarsSpecTest extends TestCase
     private static function patchSafeString(string $code): string
     {
         $classname = '\\DevTheorem\\Handlebars\\SafeString';
-        return preg_replace('/ (\\\Handlebars\\\)?SafeString(\s*\(.*?\))?/', ' ' . $classname . '$2', $code);
+        return preg_replace('/ (\\\Handlebars\\\)?SafeString(\s*\(.*?\))?/', ' ' . $classname . '$2', $code)
+            ?? throw new Exception("Failed to patch SafeString in $code");
     }
 }

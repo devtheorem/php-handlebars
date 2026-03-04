@@ -42,7 +42,14 @@ final class Exporter
 
     public static function getClosureSource(\ReflectionFunction $fn): string
     {
-        $fileContents = file_get_contents($fn->getFileName());
+        $filename = $fn->getFileName();
+        if ($filename === false) {
+            throw new \Exception("Failed to get file for closure");
+        }
+        $fileContents = file_get_contents($filename);
+        if ($fileContents === false) {
+            throw new \Exception("Unable to read file: $filename");
+        }
         $startLine = $fn->getStartLine();
         $endLine = $fn->getEndLine();
         $enteredFnToken = null;
