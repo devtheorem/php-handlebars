@@ -25,12 +25,16 @@ class RegressionTest extends TestCase
         ini_set('error_log', $tmpFile);
 
         $template(['foo' => 'OK!']);
+        $lines = file($tmpFile);
+        if ($lines === false) {
+            throw new \Exception("Failed to read temp file $tmpFile");
+        }
 
         $contents = array_map(function ($l) {
             $l = rtrim($l);
             preg_match('/GMT] (.+)/', $l, $m);
             return $m[1] ?? $l;
-        }, file($tmpFile));
+        }, $lines);
 
         $this->assertEquals(['array (', "  0 => 'OK!',", ')'], $contents);
         ini_restore('error_log');
@@ -54,7 +58,7 @@ class RegressionTest extends TestCase
     }
 
     /**
-     * @return list<array{RegIssue}>
+     * @return array<array{RegIssue}>
      */
     public static function issueProvider(): array
     {
@@ -1847,6 +1851,10 @@ class RegressionTest extends TestCase
                 'template' => '{{#with "{{"}}{{.}}{{/with}}',
                 'expected' => '{{',
             ],
+            [
+                'template' => '{{#with true}}{{.}}{{/with}}',
+                'expected' => 'true',
+            ],
 
             [
                 'template' => '{{good_helper}}',
@@ -1902,6 +1910,27 @@ class RegressionTest extends TestCase
 
             [
                 'template' => '{{foo}}',
+                'expected' => '',
+            ],
+            [
+                'template' => '{{foo.bar}}',
+                'expected' => '',
+            ],
+            [
+                'template' => '{{foo.bar}}',
+                'data' => ['foo' => []],
+                'expected' => '',
+            ],
+            [
+                'template' => '{{#with items}}OK!{{/with}}',
+                'expected' => '',
+            ],
+            [
+                'template' => '{{log}}',
+                'expected' => '',
+            ],
+            [
+                'template' => '{{#*inline}}{{/inline}}',
                 'expected' => '',
             ],
 

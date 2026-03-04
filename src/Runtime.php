@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace DevTheorem\Handlebars;
 
 /**
@@ -61,7 +63,7 @@ final class Runtime
             && ($zero || ($v !== 0 && $v !== 0.0))
             && $v !== ''
             && (!$v instanceof \Stringable || (string) $v !== '')
-            && (!is_array($v) || count($v) > 0);
+            && (!is_array($v) || $v);
     }
 
     /**
@@ -73,7 +75,7 @@ final class Runtime
      */
     public static function isec(mixed $v): bool
     {
-        return $v === null || $v === false || (is_array($v) && count($v) === 0);
+        return $v === null || $v === false || (is_array($v) && !$v);
     }
 
     /**
@@ -91,19 +93,12 @@ final class Runtime
     }
 
     /**
-     * Get string value
+     * Get string representation for output
      *
-     * @param array<array<mixed>|string|int>|string|int|bool|null $v value to be output
-     * @param int $ex 1 to return untouched value, default is 0
-     *
-     * @return array<array<mixed>|string|int>|string|null The raw value of the specified variable
+     * @param array<mixed>|string|StringObject|int|bool|null $v value to be output
      */
-    public static function raw(array|string|int|bool|null $v, int $ex = 0): string|array|null
+    public static function raw(array|string|StringObject|int|bool|null $v): string
     {
-        if ($ex) {
-            return $v;
-        }
-
         if ($v === true) {
             return 'true';
         }
@@ -131,41 +126,32 @@ final class Runtime
      * For {{#var}} or {{#each}} .
      *
      * @param array<array<mixed>|string|int>|string|int|bool|null|\Closure|\Traversable<string, mixed> $v value for the section
-     * @param array<string>|null $bp block parameters
+     * @param array<string> $bp block parameters
      * @param array<array<mixed>|string|int>|string|int|null $in input data with current scope
      * @param bool $each true when rendering #each
      * @param \Closure $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
      */
-    public static function sec(RuntimeContext $cx, mixed $v, ?array $bp, mixed $in, bool $each, \Closure $cb, ?\Closure $else = null): string
+    public static function sec(RuntimeContext $cx, mixed $v, array $bp, mixed $in, bool $each, \Closure $cb, ?\Closure $else = null): string
     {
-        $push = $in !== $v || $each;
-
-        $isAry = is_array($v) || ($v instanceof \ArrayObject);
-        $isTrav = $v instanceof \Traversable;
-        $loop = $each;
-        $keys = null;
-        $last = null;
-        $isObj = false;
-
-        if ($isAry && $else !== null && count($v) === 0) {
+        if ($else !== null && (is_array($v) || $v instanceof \ArrayObject)) {
             return $else($cx, $in);
         }
 
-        // #var, detect input type is object or not
-        if (!$loop && $isAry) {
-            $keys = array_keys($v);
-            $loop = array_is_list($v);
-            $isObj = !$loop;
-        }
+        $push = $in !== $v || $each;
+        $isAry = is_array($v) || $v instanceof \ArrayObject;
+        $isTrav = $v instanceof \Traversable;
+        $loop = $each || (is_array($v) && array_is_list($v));
 
-        if (($loop && $isAry) || $isTrav) {
-            if ($each && !$isTrav) {
-                // Detect input type is object or not when never done once
-                if ($keys == null) {
-                    $keys = array_keys($v);
-                    $isObj = !array_is_list($v);
-                }
+        if (($loop && $isAry || $isTrav) && is_iterable($v)) {
+            $last = null;
+            $isObj = false;
+            $isSparseArray = false;
+            if (is_array($v)) {
+                $keys = array_keys($v);
+                $last = count($keys) - 1;
+                $isObj = !array_is_list($v);
+                $isSparseArray = $isObj && !array_filter($keys, is_string(...));
             }
             $ret = [];
             $cx = clone $cx;
@@ -175,38 +161,28 @@ final class Runtime
             $i = 0;
             $oldSpvar = $cx->spVars ?? [];
             $cx->spVars = array_merge(['root' => $oldSpvar['root'] ?? null], $oldSpvar, ['_parent' => $oldSpvar]);
-            if (!$isTrav) {
-                $last = count($keys) - 1;
-            }
-
-            $isSparceArray = $isObj && (count(array_filter(array_keys($v), 'is_string')) == 0);
 
             foreach ($v as $index => $raw) {
                 $cx->spVars['first'] = ($i === 0);
-                $cx->spVars['last'] = ($i == $last);
+                $cx->spVars['last'] = ($i === $last);
                 $cx->spVars['key'] = $index;
-                $cx->spVars['index'] = $isSparceArray ? $index : $i;
+                $cx->spVars['index'] = $isSparseArray ? $index : $i;
                 $i++;
-                $originalRaw = $raw;
-                if (isset($bp[0])) {
-                    $raw = static::merge($raw, [$bp[0] => $raw]);
-                }
-                if (isset($bp[1])) {
-                    $raw = static::merge($raw, [$bp[1] => $index]);
-                }
                 if ($bp) {
                     $bpEntry = [];
                     if (isset($bp[0])) {
-                        $bpEntry[$bp[0]] = $originalRaw;
+                        $bpEntry[$bp[0]] = $raw;
+                        $raw = static::merge($raw, [$bp[0] => $raw]);
                     }
                     if (isset($bp[1])) {
                         $bpEntry[$bp[1]] = $index;
+                        $raw = static::merge($raw, [$bp[1] => $index]);
                     }
                     array_unshift($cx->blParam, $bpEntry);
-                    $ret[] = $cb($cx, $raw);
+                }
+                $ret[] = $cb($cx, $raw);
+                if ($bp) {
                     array_shift($cx->blParam);
-                } else {
-                    $ret[] = $cb($cx, $raw);
                 }
             }
 
@@ -265,37 +241,29 @@ final class Runtime
             return static::applyBlockHelperMissing($cx, $result, $in, $cb, $else);
         }
 
-        if ($v === true) {
-            return $cb($cx, $in);
-        }
-
         if ($v !== null && $v !== false) {
-            return $cb($cx, $v);
+            return $cb($cx, $v === true ? $in : $v);
         }
 
-        if ($else !== null) {
-            return $else($cx, $in);
-        }
-
-        return '';
+        return $else !== null ? $else($cx, $in) : '';
     }
 
     /**
      * For {{#with}} .
      *
-     * @param array<array<mixed>|string|int>|string|int|bool|null $v value to be the new context
-     * @param array<string>|null $bp block parameters
+     * @param array<array<mixed>|string|int>|string|int|null $v value to be the new context
+     * @param array<string> $bp block parameters
      * @param array<array<mixed>|string|int>|\stdClass|null $in input data with current scope
      * @param \Closure $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
      */
-    public static function wi(RuntimeContext $cx, mixed $v, ?array $bp, array|\stdClass|null $in, \Closure $cb, ?\Closure $else = null): string
+    public static function wi(RuntimeContext $cx, mixed $v, array $bp, array|\stdClass|null $in, \Closure $cb, ?\Closure $else = null): string
     {
         if (isset($bp[0])) {
             $v = static::merge($v, [$bp[0] => $v]);
         }
 
-        if ($v === false || $v === null || (is_array($v) && count($v) === 0)) {
+        if ($v === null || is_array($v) && !$v) {
             return $else ? $else($cx, $in) : '';
         }
 
@@ -316,17 +284,17 @@ final class Runtime
      * Get merged context.
      *
      * @param array<array<mixed>|string|int>|object|string|int|null $a the context to be merged
-     * @param array<array<mixed>|string|int>|string|int|null $b the new context to overwrite
+     * @param array<array<mixed>|string|int|null>|string|int|null $b the new context to overwrite
      *
-     * @return array<array<mixed>|string|int>|string|int the merged context object
+     * @return array<array<mixed>|string|int|null>|object|string|int|null the merged context object
      */
     public static function merge(mixed $a, mixed $b): mixed
     {
         if (is_array($b)) {
-            if ($a === null) {
+            if ($a === null || is_int($a)) {
                 return $b;
             } elseif (is_array($a)) {
-                return array_merge($a, $b);
+                return array_replace($a, $b);
             } else {
                 if (!is_object($a)) {
                     $a = new StringObject($a);
@@ -343,10 +311,10 @@ final class Runtime
      * For {{> partial}} .
      *
      * @param string $p partial name
-     * @param array<array<mixed>|string|int>|string|int|null $v value to be the new context
+     * @param array<array<mixed>> $v value to be the new context
      * @param string $indent whitespace to prepend to each line of the partial's output
      */
-    public static function p(RuntimeContext $cx, string $p, $v, int $pid, string $indent): string
+    public static function p(RuntimeContext $cx, string $p, array $v, int $pid, string $indent): string
     {
         $pp = ($p === '@partial-block') ? $p . ($pid > 0 ? $pid : $cx->partialId) : $p;
 
@@ -354,11 +322,13 @@ final class Runtime
             throw new \Exception("Runtime: the partial $p could not be found");
         }
 
-        $cx = clone $cx;
+        $savedPartialId = $cx->partialId;
         $cx->partialId = ($p === '@partial-block') ? ($pid > 0 ? $pid : ($cx->partialId > 0 ? $cx->partialId - 1 : 0)) : $pid;
         $cx->partialDepth++;
 
         $result = $cx->partials[$pp]($cx, static::merge($v[0][0], $v[1]), '');
+        $cx->partialId = $savedPartialId;
+        $cx->partialDepth--;
 
         if ($indent !== '') {
             $lines = explode("\n", $result);
@@ -402,7 +372,7 @@ final class Runtime
      * For single custom helpers.
      *
      * @param string $ch the name of custom helper to be executed
-     * @param array<array<mixed>|string|int> $vars variables for the helper
+     * @param array<array<mixed>> $vars variables for the helper
      * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
      * @param string|null $logicalName when set, use as options.name instead of $ch
      */
@@ -429,14 +399,14 @@ final class Runtime
      * For block custom helpers.
      *
      * @param string $ch the name of custom helper to be executed
-     * @param array<array<mixed>|string|int> $vars variables for the helper
+     * @param array<array<mixed>> $vars variables for the helper
      * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
      * @param bool $inverted the logic will be inverted
-     * @param \Closure|null $cb callback function to render child context
+     * @param \Closure $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
      * @param string|null $logicalName when set, use as options.name instead of $ch
      */
-    public static function hbbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this, bool $inverted, ?\Closure $cb, ?\Closure $else = null, ?string $logicalName = null): mixed
+    public static function hbbch(RuntimeContext $cx, string $ch, array $vars, mixed &$_this, bool $inverted, \Closure $cb, ?\Closure $else = null, ?string $logicalName = null): mixed
     {
         $blockParams = isset($vars[2]) ? count($vars[2]) : 0;
         $data = &$cx->spVars;
@@ -463,12 +433,12 @@ final class Runtime
 
     /**
      * Like hbbch but for non-registered paths (pathed/depthed/scoped block calls with params).
-     * @param array<array<mixed>|string|int> $vars variables for the helper
+     * @param array<array<mixed>> $vars variables for the helper
      * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
-     * @param \Closure|null $cb callback function to render child context
+     * @param \Closure $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
      */
-    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $vars, mixed &$_this, ?\Closure $cb, ?\Closure $else = null): mixed
+    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $vars, mixed &$_this, \Closure $cb, ?\Closure $else = null): mixed
     {
         if (!$callable instanceof \Closure) {
             throw new \Exception('"' . $name . '" is not a block helper function');
@@ -502,10 +472,14 @@ final class Runtime
      * Build the $fn closure passed to HelperOptions for block helpers.
      * Handles spVars updates, block-param injection, and context scope pushing.
      *
-     * @param array<array<mixed>|string|int> $vars
+     * @param array<array<mixed>> $vars
      */
     private static function makeBlockFn(RuntimeContext $cx, mixed $_this, ?\Closure $cb, array $vars): \Closure
     {
+        if (!$cb) {
+            return fn() => '';
+        }
+
         return function ($context = null, $data = null) use ($cx, $_this, $cb, $vars) {
             $cx = clone $cx;
             $old_spvar = $cx->spVars;
@@ -553,11 +527,11 @@ final class Runtime
     private static function applyBlockHelperMissing(RuntimeContext $cx, mixed $result, mixed $_this, ?\Closure $cb, ?\Closure $else): string
     {
         if (is_string($result) || $result instanceof SafeString) {
-            return $result;
+            return (string) $result;
         }
 
         // $cb may be null (inverted block with no else clause) after the inversion swap in hbbch
-        return static::sec($cx, $result, null, $_this, false, $cb ?? static fn() => '', $else);
+        return static::sec($cx, $result, [], $_this, false, $cb ?? static fn() => '', $else);
     }
 
     private static function withScope(RuntimeContext $cx, mixed $scope, mixed $context, \Closure $cb): string
@@ -572,7 +546,7 @@ final class Runtime
      * Execute custom helper with prepared options
      *
      * @param string $ch the name of custom helper to be executed
-     * @param array<array<mixed>|string|int> $vars variables for the helper
+     * @param array<array<mixed>> $vars variables for the helper
      */
     public static function exch(RuntimeContext $cx, string $ch, array $vars, HelperOptions $options): mixed
     {

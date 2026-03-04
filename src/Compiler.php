@@ -33,7 +33,7 @@ final class Compiler
     /**
      * Compile-time stack of block param name arrays, innermost first.
      * Only populated for constructs that push to $cx->blParam at runtime (currently #each).
-     * @var list<list<string>>
+     * @var list<string[]>
      */
     private array $blockParamValues = [];
 
@@ -51,12 +51,15 @@ final class Compiler
     {
         $this->context = $context;
         $this->blockParamValues = [];
-        $code = '';
+        return $this->compileBody($program);
+    }
 
+    private function compileBody(Program $program): string
+    {
+        $code = '';
         foreach ($program->body as $statement) {
             $code .= $this->accept($statement);
         }
-
         return $code;
     }
 
@@ -98,14 +101,7 @@ final class Compiler
 
     private function compileProgram(Program $program, bool $withSp = false): string
     {
-        $code = '';
-
-        foreach ($program->body as $statement) {
-            $code .= $this->accept($statement);
-        }
-
-        $quoted = "'" . $code . "'";
-
+        $quoted = "'" . $this->compileBody($program) . "'";
         return $withSp ? "\$sp.$quoted" : $quoted;
     }
 
@@ -192,7 +188,7 @@ final class Compiler
             // Regular section: {{#"foo"}}...{{/"foo"}}
             $body = $this->compileProgram($block->program, true);
             $else = $this->compileElseClause($block);
-            return "'." . self::getRuntimeFunc('sec', "\$cx, $var, null, \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ".'";
+            return "'." . self::getRuntimeFunc('sec', "\$cx, $var, [], \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ".'";
         }
 
         // Inverted section: {{^var}}...{{/var}}
@@ -216,6 +212,9 @@ final class Compiler
 
     private function compileDynamicBlockHelper(BlockStatement $block): string
     {
+        if (!$block->program) {
+            throw new \Exception('Dynamic block program must not be empty');
+        }
         $varPath = $this->compileExpression($block->path);
         $bp = $block->program->blockParams;
         $params = $this->compileParams($block->params, $block->hash, $bp ?: null);
@@ -310,7 +309,7 @@ final class Compiler
             return "'." . self::getRuntimeFunc('hbbch', "\$cx, 'blockHelperMissing', [[$var],[]], \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else, $escapedName") . ".'";
         }
 
-        return "'." . self::getRuntimeFunc('sec', "\$cx, $var, null, \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ".'";
+        return "'." . self::getRuntimeFunc('sec', "\$cx, $var, [], \$in, false, function(\$cx, \$in) use (&\$sp) {return $body;}$else") . ".'";
     }
 
     private function compileInvertedSection(BlockStatement $block): string
@@ -323,8 +322,8 @@ final class Compiler
 
     private function compileBlockHelper(BlockStatement $block, string $helperName, ?string $missingName = null): string
     {
-        $bp = $block->program->blockParams ?? $block->inverse->blockParams ?? null;
-        $params = $this->compileParams($block->params, $block->hash, $bp ?: null);
+        $bp = $block->program->blockParams ?? $block->inverse->blockParams ?? [];
+        $params = $this->compileParams($block->params, $block->hash, $bp);
         $escapedName = $missingName === null ? 'null' : self::quote($missingName);
 
         if ($block->program === null) {
@@ -485,7 +484,7 @@ final class Compiler
                 return $this->compileLog($mustache);
             }
 
-            if (count($mustache->params) !== 0) {
+            if ($mustache->params) {
                 // Non-simple path with params (data var or pathed expression): invoke via dv()
                 if ($helperName === null) {
                     $varPath = $this->PathExpression($path);
@@ -528,7 +527,7 @@ final class Compiler
             return "'." . self::getRuntimeFunc($fn, $call) . ".'";
         }
 
-        if (count($mustache->params) !== 0) {
+        if ($mustache->params) {
             throw new \Exception('Missing helper: "' . $literalKey . '"');
         }
 
@@ -570,7 +569,7 @@ final class Compiler
 
         // Built-in: lookup (as subexpression)
         if ($helperName === 'lookup') {
-            return $this->compileLookupExpr($expression->params);
+            return $this->getWithLookup($expression->params[0], $expression->params[1]);
         }
 
         if ($helperName !== null) {
@@ -861,19 +860,13 @@ final class Compiler
      */
     private function getSimpleHelperName(PathExpression|Literal $path): ?string
     {
-        if (!$path instanceof PathExpression) {
-            return null;
-        }
-
-        if ($path->data || $path->depth > 0 || self::scopedId($path)) {
-            return null;
-        }
-
-        if (count($path->parts) !== 1) {
-            return null;
-        }
-
-        if (!is_string($path->parts[0])) {
+        if (!$path instanceof PathExpression
+            || $path->data
+            || $path->depth > 0
+            || self::scopedId($path)
+            || count($path->parts) !== 1
+            || !is_string($path->parts[0])
+        ) {
             return null;
         }
 
@@ -954,18 +947,11 @@ final class Compiler
 
     /**
      * Get string presentation for a string list
-     * @param array<string> $list
+     * @param string[] $list
      */
     private static function listString(array $list): string
     {
-        $string = '[';
-        foreach ($list as $item) {
-            $string .= self::quote($item) . ',';
-        }
-        if ($list) {
-            $string = substr($string, 0, -1);
-        }
-        return $string . ']';
+        return '[' . implode(',', array_map(self::quote(...), $list)) . ']';
     }
 
     private function missValue(string $key): string
@@ -975,11 +961,11 @@ final class Compiler
             : 'null';
     }
 
-    /** @return array{list<string>, string} [$bp, $bs] */
+    /** @return array{string[], string} [$bp, $bs] */
     private function getProgramBlockParams(?Program $program): array
     {
         $bp = $program ? $program->blockParams : [];
-        $bs = $bp ? self::listString($bp) : 'null';
+        $bs = self::listString($bp);
         return [$bp, $bs];
     }
 
@@ -990,7 +976,7 @@ final class Compiler
 
     /**
      * Return only the string parts of a mixed parts array, re-indexed.
-     * @param list<string|SubExpression> $parts
+     * @param array<string|SubExpression> $parts
      * @return list<string>
      */
     private static function stringPartsOf(array $parts): array
@@ -1029,20 +1015,6 @@ final class Compiler
         $varCode = $this->getWithLookup($itemsExpr, $idxExpr);
 
         return "'." . self::getRuntimeFunc($fn, $varCode) . ".'";
-    }
-
-    /**
-     * Compile lookup as a sub-expression argument.
-     *
-     * @param Expression[] $params
-     */
-    private function compileLookupExpr(array $params): string
-    {
-        $itemsExpr = $params[0];
-        $idxExpr = $params[1];
-        $varCode = $this->getWithLookup($itemsExpr, $idxExpr);
-
-        return self::getRuntimeFunc('raw', "$varCode, 1");
     }
 
     /**

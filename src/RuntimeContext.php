@@ -9,7 +9,7 @@ class RuntimeContext
 {
     /**
      * @param array<string, callable> $helpers
-     * @param array<string, string> $partials
+     * @param array<string, callable> $partials
      * @param array<mixed> $scopes
      * @param array<mixed> $spVars
      * @param array<mixed> $blParam
