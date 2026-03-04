@@ -2,8 +2,6 @@
 
 namespace DevTheorem\Handlebars;
 
-use Closure;
-
 /**
  * @internal
  */
@@ -14,7 +12,6 @@ final class Context
      * @param array<string, string> $partialCode
      * @param array<string, true> $usedHelpers
      * @param array<string, string> $partials
-     * @param null|Closure(Context, string):(string|null) $partialResolver
      * @param array<mixed> $partialBlock
      * @param array<mixed> $inlinePartial
      * @param array<string, callable> $helpers
@@ -28,20 +25,18 @@ final class Context
         public int $partialBlockId = 0,
         public array $usedHelpers = [],
         public array $partials = [],
-        public ?Closure $partialResolver = null,
         public array $partialBlock = [],
         public array $inlinePartial = [],
         public array $helpers = [],
     ) {
         $this->partials = $options->partials;
-        $this->partialResolver = $options->partialResolver;
         $this->helpers = $options->helpers;
     }
 
     /**
      * Update from another context.
      */
-    public function merge(Context $context): void
+    public function merge(self $context): void
     {
         $this->helpers = $context->helpers;
         $this->partials = $context->partials;

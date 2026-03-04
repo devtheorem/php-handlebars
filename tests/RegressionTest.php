@@ -2,7 +2,6 @@
 
 namespace DevTheorem\Handlebars\Test;
 
-use DevTheorem\Handlebars\Context;
 use DevTheorem\Handlebars\Handlebars;
 use DevTheorem\Handlebars\HelperOptions;
 use DevTheorem\Handlebars\Options;
@@ -2321,7 +2320,7 @@ class RegressionTest extends TestCase
             [
                 'template' => '{{>foo}} and {{>bar}}',
                 'options' => new Options(
-                    partialResolver: function (Context $context, string $name) {
+                    partialResolver: function (string $name) {
                         return "PARTIAL: $name";
                     },
                 ),
