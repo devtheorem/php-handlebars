@@ -6,6 +6,7 @@ namespace DevTheorem\Handlebars;
 
 /**
  * @internal
+ * @phpstan-import-type RenderOptions from Handlebars
  */
 final class Runtime
 {
@@ -14,6 +15,8 @@ final class Runtime
     private static ?\Closure $emptyFn = null;
     /** @var array<string, \Closure>|null */
     private static ?array $defaultHelpers = null;
+    /** Parent RuntimeContext during a user-partial invocation, null at top level. */
+    private static ?RuntimeContext $partialContext = null;
 
     public static function nullContext(): object
     {
@@ -170,6 +173,40 @@ final class Runtime
             self::miss($original);
         }
         return $base[$key];
+    }
+
+    /**
+     * Build a RuntimeContext from raw render options and compile-time partial closures.
+     *
+     * @param RenderOptions $options
+     * @param array<string, \Closure> $compiledPartials
+     */
+    public static function createContext(mixed $context, array $options, array $compiledPartials): RuntimeContext
+    {
+        $parentCx = self::$partialContext;
+        $root = ['root' => $context];
+
+        if ($parentCx !== null) {
+            // Partial context: reuse the parent's already-merged helpers and partials directly.
+            // PHP copy-on-write ensures partials is only copied if in() registers a new inline partial.
+            // Set data['root'] to the partial's context so that $in = &$cx->data['root'] in
+            // composePHPRender-compiled Templates receives the partial's context, not the top-level root.
+            // Other @data vars (index, key, etc.) and block params are inherited from the parent.
+            return new RuntimeContext(
+                helpers: $parentCx->helpers,
+                partials: $parentCx->partials,
+                scopes: $parentCx->scopes,
+                data: array_replace($parentCx->data, $root),
+                blParam: $parentCx->blParam,
+                partialId: $parentCx->partialId,
+            );
+        }
+
+        return new RuntimeContext(
+            helpers: array_replace(Runtime::defaultHelpers(), $options['helpers'] ?? []),
+            partials: array_replace($compiledPartials, $options['partials'] ?? []),
+            data: isset($options['data']) ? array_replace($root, $options['data']) : $root,
+        );
     }
 
     /**
@@ -378,7 +415,8 @@ final class Runtime
     {
         $pp = ($p === '@partial-block') ? $p . ($pid > 0 ? $pid : $cx->partialId) : $p;
 
-        if (!isset($cx->partials[$pp])) {
+        $fn = $cx->partials[$pp] ?? null;
+        if ($fn === null) {
             throw new \Exception("The partial $p could not be found");
         }
 
@@ -386,7 +424,14 @@ final class Runtime
         $cx->partialId = ($p === '@partial-block') ? ($pid > 0 ? $pid : ($cx->partialId > 0 ? $cx->partialId - 1 : 0)) : $pid;
         $cx->partialDepth++;
 
-        $result = $cx->partials[$pp]($cx, static::merge($v[0][0], $v[1]));
+        $context = static::merge($v[0][0], $v[1]);
+        $prev = self::$partialContext;
+        self::$partialContext = $cx;
+        try {
+            $result = $fn($context, ['helpers' => $cx->helpers]);
+        } finally {
+            self::$partialContext = $prev;
+        }
         $cx->partialId = $savedPartialId;
         $cx->partialDepth--;
 
@@ -417,11 +462,16 @@ final class Runtime
         if (str_starts_with($p, '@partial-block')) {
             // Capture the outer partialId at registration time so that when this
             // block closure runs, any {{>@partial-block}} inside it resolves to
-            // the correct outer partial block (not partialId - 1).
+            // the correct outer partial block rather than following the pid-decrement chain.
             $outerPartialId = $cx->partialId;
-            $cx->partials[$p] = function (RuntimeContext $cx, mixed $in) use ($code, $outerPartialId): string {
-                $cx->partialId = $outerPartialId;
-                return $code($cx, $in);
+            $cx->partials[$p] = function (mixed $context = null, array $options = []) use ($code, $outerPartialId): string {
+                $callingCx = self::$partialContext;
+                assert($callingCx !== null);
+                $savedId = $callingCx->partialId;
+                $callingCx->partialId = $outerPartialId;
+                $result = $code($context, $options);
+                $callingCx->partialId = $savedId;
+                return $result;
             };
         } else {
             $cx->partials[$p] = $code;

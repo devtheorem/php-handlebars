@@ -51,16 +51,7 @@ final class Compiler
     {
         $this->context = $context;
         $this->blockParamValues = [];
-        return $this->compileBody($program);
-    }
-
-    private function compileBody(Program $program): string
-    {
-        $code = '';
-        foreach ($program->body as $statement) {
-            $code .= $this->accept($statement);
-        }
-        return $code;
+        return $this->compileProgram($program);
     }
 
     /**
@@ -71,38 +62,33 @@ final class Compiler
     public function composePHPRender(string $code): string
     {
         $runtime = Runtime::class;
-        $helperOptions = HelperOptions::class;
-        $safeStringClass = SafeString::class;
-        $runtimeContext = RuntimeContext::class;
         $partials = implode(",\n", $this->context->partialCode);
+        $closure = self::templateClosure($code, $partials, "\n \$in = &\$cx->data['root'];");
+        return "use {$runtime} as LR;\nreturn $closure;";
+    }
 
-        // Return generated PHP code string.
-        return <<<VAREND
-            use {$runtime} as LR;
-            use {$safeStringClass};
-            use {$helperOptions};
-            use {$runtimeContext};
-            return function (mixed \$in = null, array \$options = []) {
-                \$partials = [$partials];
-                \$partials = array_replace(\$partials, \$options['_partials'] ?? []);
-                foreach (\$options['partials'] ?? [] as \$name => \$p) {
-                    \$partials[\$name] = fn(RuntimeContext \$cx, mixed \$in) => \$p(\$in, ['_partials' => \$cx->partials, 'helpers' => \$cx->helpers, 'partialId' => \$cx->partialId]);
-                }
-                \$cx = new RuntimeContext(
-                    helpers: array_replace(LR::defaultHelpers(), \$options['helpers'] ?? []),
-                    partials: \$partials,
-                    data: isset(\$options['data']) ? array_merge(['root' => \$in], \$options['data']) : ['root' => \$in],
-                    partialId: \$options['partialId'] ?? 0,
-                );
-                \$in = &\$cx->data['root'];
-                return '$code';
-            };
-            VAREND;
+    /**
+     * Build a partial closure string: a Template-format closure that calls createContext
+     * with empty compiled partials, inheriting context from $partialContext.
+     * @param string $code PHP expression to return (e.g. the result of compileProgram())
+     */
+    private static function templateClosure(string $code, string $partials = '', string $stmts = ''): string
+    {
+        return <<<PHP
+            function (mixed \$in = null, array \$options = []) {
+             \$cx = LR::createContext(\$in, \$options, [$partials]);$stmts
+             return $code;
+            }
+            PHP;
     }
 
     private function compileProgram(Program $program): string
     {
-        return "'" . $this->compileBody($program) . "'";
+        $code = "'";
+        foreach ($program->body as $statement) {
+            $code .= $this->accept($statement);
+        }
+        return $code . "'";
     }
 
     private function accept(Node $node): string
@@ -299,7 +285,7 @@ final class Compiler
         // Do NOT add to partialCode - `in()` handles runtime registration, keeping inline partials block-scoped.
         $this->context->usedPartial[$partialName] = '';
 
-        return self::concatRuntimeFunc('in', "\$cx, " . self::quote($partialName) . ", function(\$cx, \$in) {return $body;}");
+        return self::concatRuntimeFunc('in', "\$cx, " . self::quote($partialName) . ", " . self::templateClosure($body));
     }
 
     private function Decorator(Decorator $decorator): never
@@ -381,8 +367,8 @@ final class Compiler
             }
 
             if (!$found) {
-                // Register fallback body as the partial
-                $func = "function (\$cx, \$in) {return $body;}";
+                // Register fallback body as the partial (Template format, same as compilePartialTemplate).
+                $func = self::templateClosure($body);
                 $this->context->usedPartial[$partialName] = '';
                 $this->context->partialCode[$partialName] = self::quote($partialName) . " => $func";
             }
@@ -392,7 +378,7 @@ final class Compiler
 
         return $hoisted
             . "'."
-            . self::getRuntimeFunc('in', "\$cx, '@partial-block$pid', function(\$cx, \$in) {return $body;}") . "."
+            . self::getRuntimeFunc('in', "\$cx, '@partial-block$pid', " . self::templateClosure($body)) . "."
             . self::getRuntimeFunc('p', "\$cx, $p, $vars, $pid, ''") . ".'";
     }
 
@@ -714,8 +700,7 @@ final class Compiler
         $code = (new Compiler($this->parser))->compile($program, $tmpContext);
         $this->context->merge($tmpContext);
 
-        $func = "function (\$cx, \$in) {return '$code';}";
-        $this->context->partialCode[$name] = self::quote($name) . " => $func";
+        $this->context->partialCode[$name] = self::quote($name) . ' => ' . self::templateClosure($code);
     }
 
     public function handleDynamicPartials(): void
