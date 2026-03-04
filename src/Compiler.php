@@ -769,8 +769,8 @@ final class Compiler
         if (isset($this->context->partials[$name])) {
             return $this->context->partials[$name];
         }
-        if ($this->context->partialResolver) {
-            return ($this->context->partialResolver)($this->context, $name);
+        if ($this->context->options->partialResolver) {
+            return ($this->context->options->partialResolver)($name);
         }
         return null;
     }
