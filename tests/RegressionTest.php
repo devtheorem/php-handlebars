@@ -1837,6 +1837,24 @@ class RegressionTest extends TestCase
                 'expected' => 'YES',
             ],
 
+            // data can contain closures
+            [
+                'template' => '{{foo}}',
+                'data' => ['foo' => fn() => 'OK'],
+                'expected' => 'OK',
+            ],
+            // but callable strings or arrays should NOT be treated as functions
+            [
+                'template' => '{{foo}}',
+                'data' => ['foo' => 'hrtime'],
+                'expected' => 'hrtime',
+            ],
+            [
+                'template' => '{{#foo}}OK{{else}}bad{{/foo}}',
+                'data' => ['foo' => 'is_string'],
+                'expected' => 'OK',
+            ],
+
             [
                 'template' => '{{foo}}',
                 'data' => ['foo' => 'OK'],

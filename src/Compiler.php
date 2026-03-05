@@ -489,12 +489,19 @@ final class Compiler
             }
 
             if (count($mustache->params) !== 0) {
+                // Non-simple path with params (data var or pathed expression): invoke via dv()
+                if ($helperName === null) {
+                    $varPath = $this->PathExpression($path);
+                    $args = array_map(fn($p) => $this->compileExpression($p), $mustache->params);
+                    $call = 'LR::dv(' . $varPath . ', ' . implode(', ', $args) . ')';
+                    return "'." . $this->getFuncName($fn, $call) . ").'";
+                }
                 throw new \Exception('Missing helper: "' . $helperName . '"');
             }
 
-            // Plain variable
+            // Plain variable; wrap in dv() to support lambda context values
             $varPath = $this->PathExpression($path);
-            return "'." . $this->getFuncName($fn, $varPath) . ").'";
+            return "'." . $this->getFuncName($fn, "LR::dv($varPath)") . ").'";
         }
 
         // Literal path — treat as named context lookup or helper call
