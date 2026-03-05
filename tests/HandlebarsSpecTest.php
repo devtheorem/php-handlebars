@@ -86,7 +86,6 @@ class HandlebarsSpecTest extends TestCase
             || $spec['description'] === 'strict - assume objects'
 
             // lambda function in data
-            || $spec['it'] === 'pathed functions with context argument'
             || $spec['it'] === 'Functions are bound to the context in knownHelpers only mode'
         ) {
             $this->markTestIncomplete('Not supported case: just skip it');
@@ -97,8 +96,6 @@ class HandlebarsSpecTest extends TestCase
             $spec['it'] === 'rendering function partial in vm mode'
 
             // todo: fix
-            || $spec['it'] === 'pathed lambas with parameters'
-            || $spec['it'] === 'lambdas are resolved by blockHelperMissing, not handlebars proper'
             || $spec['description'] === 'helpers - the lookupProperty-option'
 
             // need confirm
@@ -106,8 +103,6 @@ class HandlebarsSpecTest extends TestCase
             || $spec['it'] === 'if with function argument'
             || $spec['it'] === 'with with function argument'
             || $spec['it'] === 'each with function argument' && !isset($spec['number'])
-            || $spec['it'] === 'data can be functions'
-            || $spec['it'] === 'data can be functions with params'
             || $spec['it'] === 'depthed block functions with context argument'
             || $spec['it'] === 'depthed functions with context argument'
         ) {
@@ -120,9 +115,6 @@ class HandlebarsSpecTest extends TestCase
         }
         if ($spec['it'] === 'should take presednece over parent block params') {
             $spec['helpers']['goodbyes']['php'] = 'function($options) { static $value; if ($value === null) { $value = 1; } return $options->fn(["value" => "bar"], ["blockParams" => $options->blockParams === 1 ? [$value++, $value++] : null]);}';
-        }
-        if ($spec['it'] === 'depthed block functions without context argument' && $spec['expected'] === 'inner') {
-            $spec['expected'] = '';
         }
 
         // setup helpers
@@ -201,7 +193,7 @@ class HandlebarsSpecTest extends TestCase
             ));
         } catch (\Exception $e) {
             if (isset($spec['exception'])) {
-                $this->assertEquals(true, true);
+                $this->expectNotToPerformAssertions();
                 return;
             }
             $this->fail("Compile error in {$spec['file']}#{$spec['description']}]#{$spec['no']}:{$spec['it']}\n" . $e->getMessage());
@@ -211,22 +203,37 @@ class HandlebarsSpecTest extends TestCase
         try {
             $ropt = [];
             if (is_array($spec['runtimeOptions']['data'] ?? null)) {
-                $ropt['data'] = $spec['runtimeOptions']['data'];
+                $ropt['data'] = [];
+                foreach ($spec['runtimeOptions']['data'] as $key => $value) {
+                    if (is_array($value) && isset($value['!code'], $value['php'])) {
+                        eval('$ropt[\'data\'][\'' . $key . '\'] = ' . $value['php'] . ';');
+                    } else {
+                        $ropt['data'][$key] = $value;
+                    }
+                }
             }
             $result = $renderer($spec['data'], $ropt);
         } catch (\Exception $e) {
             if (isset($spec['exception'])) {
-                $this->assertEquals(true, true);
+                $this->expectNotToPerformAssertions();
                 return;
             }
-            $this->fail("Rendering Error in {$spec['file']}#{$spec['description']}]#{$spec['no']}:{$spec['it']}\nPHP code:\n$php\n\n" . $e->getMessage());
+            $this->fail("Rendering Error in " . self::getSpecDetails($spec, $php, $helpersList) . "\n\n{$e->getMessage()}");
         }
 
         if (isset($spec['exception'])) {
-            $this->fail("Should Fail: [{$spec['file']}#{$spec['description']}]#{$spec['no']}:{$spec['it']}\nPHP code:\n$php\n\nResult: $result");
+            $this->fail("Should Fail: " . self::getSpecDetails($spec, $php, $helpersList) . "\n\nResult: $result");
         }
 
-        $this->assertEquals($spec['expected'], $result, "[{$spec['file']}#{$spec['description']}]#{$spec['no']}:{$spec['it']}\nHELPERS:$helpersList");
+        $this->assertEquals($spec['expected'], $result, self::getSpecDetails($spec, $php, $helpersList));
+    }
+
+    /**
+     * @param JsonSpec $spec
+     */
+    private static function getSpecDetails(array $spec, string $code, string $helpers): string
+    {
+        return "{$spec['file']}#{$spec['description']}]#{$spec['no']}:{$spec['it']}\nHelpers:\n$helpers\nPHP code:\n$code";
     }
 
     /**
@@ -269,11 +276,30 @@ class HandlebarsSpecTest extends TestCase
     private static function fixDataHelpers(array &$spec): void
     {
         if (isset($spec['data']) && is_array($spec['data'])) {
-            foreach ($spec['data'] as $key => $value) {
+            foreach ($spec['data'] as $key => &$value) {
                 if (is_array($value) && isset($value['!code'], $value['php'])) {
                     $spec['helpers'][$key] = $value;
-                    unset($spec['data'][$key]);
+                    eval('$value = ' . $value['php'] . ';');
                 }
+            }
+            unset($value);
+            self::evalNestedCode($spec['data']);
+        }
+    }
+
+    /**
+     * @param array<mixed> $data
+     */
+    private static function evalNestedCode(array &$data): void
+    {
+        foreach ($data as &$value) {
+            if (!is_array($value)) {
+                continue;
+            }
+            if (isset($value['!code'], $value['php'])) {
+                eval('$value = ' . $value['php'] . ';');
+            } else {
+                self::evalNestedCode($value);
             }
         }
     }
