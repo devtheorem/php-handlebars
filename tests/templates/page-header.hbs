@@ -1,0 +1,16 @@
+<div class="page-header">
+    <h1>
+        {{{heading}}}
+        {{#if headingBadge}}<span class="badge badge-{{headingBadge.type}}">{{headingBadge.text}}</span>{{/if}}
+    </h1>
+    {{#if subheading}}<p class="lead">{{subheading}}</p>{{/if}}
+    {{#if actions}}
+        <div class="page-actions">
+            {{#each actions}}
+                <a href="{{url}}" class="btn btn-{{#if primary}}primary{{else}}secondary{{/if}}{{#if size}} btn-{{size}}{{/if}}">
+                    {{#if icon}}<i class="icon-{{icon}}"></i> {{/if}}{{label}}
+                </a>
+            {{/each}}
+        </div>
+    {{/if}}
+</div>
