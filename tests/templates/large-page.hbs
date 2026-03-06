@@ -78,28 +78,28 @@
                     </tr>
                     </thead>
                     <tbody>
-                    {{#each items as |item i|}}
-                        <tr class="{{#if item.deleted}}deleted{{/if}} {{#if (eq @index ../selectedIndex)}}selected{{/if}}" data-id="{{item.id}}">
+                    {{#each items}}
+                        <tr class="{{#if deleted}}deleted{{/if}} {{#if (eq @index ../selectedIndex)}}selected{{/if}}" data-id="{{id}}">
                             {{#each ../columns}}
-                                <td class="col-{{key}}{{#if item.highlighted}} highlighted{{/if}}">
+                                <td class="col-{{key}}{{#if ../highlighted}} highlighted{{/if}}">
                                     {{#if (eq type "boolean")}}
-                                        {{#if (lookup item key)}}<i class="icon-check text-success"></i>{{else}}<i class="icon-times text-muted"></i>{{/if}}
+                                        {{#if (lookup .. key)}}<i class="icon-check text-success"></i>{{else}}<i class="icon-times text-muted"></i>{{/if}}
                                     {{else if (eq type "date")}}
-                                        <time datetime="{{formatDate (lookup item key) "Y-m-d"}}">{{formatDate (lookup item key) format}}</time>
+                                        <time datetime="{{formatDate (lookup .. key) "Y-m-d"}}">{{formatDate (lookup .. key) format}}</time>
                                     {{else if (eq type "currency")}}
-                                        {{formatCurrency (lookup item key) ../currency}}
+                                        {{formatCurrency (lookup .. key) ../../currency}}
                                     {{else if (eq type "link")}}
-                                        <a href="{{replace linkTemplate "{id}" item.id}}">{{lookup item key}}</a>
+                                        <a href="{{replace linkTemplate "{id}" ../id}}">{{lookup .. key}}</a>
                                     {{else}}
-                                        {{lookup item key}}
+                                        {{lookup .. key}}
 {{!--- avoid extra whitespace ---}}{{/if}}
                                 </td>
                             {{/each}}
                             {{#if ../showActions}}
                                 <td class="actions">
                                     {{#each ../rowActions}}
-                                        {{#unless (and requiresAdmin (not item.isAdmin))}}
-                                            <a href="{{replace urlTemplate "{id}" item.id}}"
+                                        {{#unless (and requiresAdmin (not ../isAdmin))}}
+                                            <a href="{{replace urlTemplate "{id}" ../id}}"
                                                class="btn btn-sm btn-{{style}}"
                                                {{#if confirm}}data-confirm="{{t confirmKey}}"{{/if}}
                                                title="{{t labelKey}}">

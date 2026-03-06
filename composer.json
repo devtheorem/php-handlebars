@@ -19,7 +19,8 @@
     ],
     "require": {
         "php": ">=8.2",
-        "devtheorem/php-handlebars-parser": "^1.1.0"
+        "devtheorem/php-handlebars-parser": "^1.1.0",
+        "zordius/lightncandy": "^1.2"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.94",
