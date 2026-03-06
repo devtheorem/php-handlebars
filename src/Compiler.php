@@ -433,12 +433,16 @@ final class Compiler
             }
 
             // When not strict/assumeObjects, check runtime helpers for bare identifiers.
-            // This applies even with knownHelpersOnly so that runtime-registered helpers work.
             if ($helperName !== null && !$this->context->options->strict && !$this->context->options->assumeObjects) {
                 $bpIdx = $this->lookupBlockParam($helperName);
                 if ($bpIdx === null) {
                     $escapedKey = self::quote($helperName);
-                    $call = self::getRuntimeFunc('hv', "\$cx, $escapedKey, \$in");
+                    if ($this->context->options->knownHelpersOnly) {
+                        $miss = $this->missValue($helperName);
+                        $call = self::getRuntimeFunc('dv', "\$in[$escapedKey] ?? $miss, \$in");
+                    } else {
+                        $call = self::getRuntimeFunc('hv', "\$cx, $escapedKey, \$in");
+                    }
                     return self::concatRuntimeFunc($fn, $call);
                 }
             }

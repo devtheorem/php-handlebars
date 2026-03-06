@@ -73,10 +73,6 @@ class HandlebarsSpecTest extends TestCase
         if ($spec['it'] === 'should take presednece over parent block params') {
             $spec['helpers']['goodbyes']['php'] = 'function($options) { static $value; if ($value === null) { $value = 1; } return $options->fn(["value" => "bar"], ["blockParams" => $options->blockParams === 1 ? [$value++, $value++] : null]);}';
         }
-        if ($spec['it'] === 'Functions are bound to the context in knownHelpers only mode' && is_array($spec['data'])) {
-            $spec['data']['foo']['php'] = 'function($options) { return $options->scope[\'bar\']; }';
-        }
-
         self::addDataHelpers($spec);
 
         // setup helpers
