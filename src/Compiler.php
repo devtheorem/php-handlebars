@@ -128,6 +128,13 @@ final class Compiler
         $helperName = $this->getSimpleHelperName($block->path);
 
         if ($helperName !== null) {
+            if (($helperName === 'if' || $helperName === 'unless') && count($block->params) === 1 && $block->hash === null && !($block->program?->blockParams)) {
+                if ($this->context->options->knownHelpersOnly && !$this->isKnownHelper($helperName)) {
+                    $this->throwKnownHelpersOnly($helperName);
+                }
+                return $this->compileIfOrUnless($block, $helperName);
+            }
+
             if ($this->isKnownHelper($helperName)) {
                 return $this->compileBlockHelper($block, $helperName);
             }
@@ -261,6 +268,20 @@ final class Compiler
         $else = $this->compileElseClause($block);
         $blockFn = self::blockClosure($body);
         return self::concatRuntimeFunc('dynhbbch', "\$cx, '$helperName', null, $params, \$in, $blockFn, $else");
+    }
+
+    private function compileIfOrUnless(BlockStatement $block, string $helperName): string
+    {
+        $savedHelperArgs = $this->compilingHelperArgs;
+        $this->compilingHelperArgs = true;
+        $cond = $this->compileExpression($block->params[0]);
+        $this->compilingHelperArgs = $savedHelperArgs;
+
+        $body = $this->compileProgramOrEmpty($block->program);
+        $else = $this->compileProgramOrEmpty($block->inverse);
+        [$ifTrue, $ifFalse] = $helperName === 'if' ? [$body, $else] : [$else, $body];
+        $check = self::getRuntimeFunc('ifvar', self::getRuntimeFunc('dv', "$cond, \$in"));
+        return "'.($check ? $ifTrue : $ifFalse).'";
     }
 
     private function DecoratorBlock(BlockStatement $block): string

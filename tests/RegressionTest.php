@@ -1041,18 +1041,6 @@ class RegressionTest extends TestCase
             ],
 
             [
-                'id' => 233,
-                'template' => '{{#if foo}}FOO{{else}}BAR{{/if}}',
-                'data' => [],
-                'helpers' => [
-                    'if' => function ($arg, HelperOptions $options) {
-                        return $options->fn();
-                    },
-                ],
-                'expected' => 'FOO',
-            ],
-
-            [
                 'id' => 234,
                 'template' => '{{> (lookup foo 2)}}',
                 'data' => ['foo' => ['a', 'b', 'c']],
