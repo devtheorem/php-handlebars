@@ -22,44 +22,6 @@ foreach ($partialNames as $name) {
     $partialTemplates[$name] = loadTemplate($name);
 }
 
-// Warm up: give the JIT a chance to compile hot paths before we measure.
-for ($i = 0; $i < 50; $i++) {
-    Handlebars::precompile($template);
-    foreach ($partialTemplates as $src) {
-        Handlebars::precompile($src);
-    }
-}
-
-$start = hrtime(true);
-
-for ($i = 0; $i < $iterations; $i++) {
-    Handlebars::precompile($template);
-    foreach ($partialTemplates as $src) {
-        Handlebars::precompile($src);
-    }
-}
-
-$elapsed = (hrtime(true) - $start) / 1e9;
-$perParse = $elapsed / $iterations * 1000;
-$php = Handlebars::precompile($template);
-$codeBytes = strlen($php);
-$partials = [];
-
-foreach ($partialTemplates as $name => $src) {
-    $code = Handlebars::precompile($src);
-    $codeBytes += strlen($code);
-    $partials[$name] = Handlebars::template($code);
-}
-
-printf(
-    "Compiled %d times in %.3f s  |  %.3f ms/compile  |  %.1f KB code  (%d partials)\n",
-    $iterations,
-    $elapsed,
-    $perParse,
-    $codeBytes / 1024,
-    count($partialTemplates),
-);
-
 $translations = [
     'nav.profile' => 'Profile',
     'nav.settings' => 'Settings',
@@ -107,6 +69,47 @@ $helpers = [
     'not' => fn(mixed $a) => !$a,
     'gt' => fn(mixed $a, mixed $b) => $a > $b,
 ];
+
+$knownHelpers = array_fill_keys(array_keys($helpers), true);
+$options = new \DevTheorem\Handlebars\Options($knownHelpers, true);
+
+// Warm up: give the JIT a chance to compile hot paths before we measure.
+for ($i = 0; $i < 50; $i++) {
+    Handlebars::precompile($template, $options);
+    foreach ($partialTemplates as $src) {
+        Handlebars::precompile($src, $options);
+    }
+}
+
+$start = hrtime(true);
+
+for ($i = 0; $i < $iterations; $i++) {
+    Handlebars::precompile($template, $options);
+    foreach ($partialTemplates as $src) {
+        Handlebars::precompile($src, $options);
+    }
+}
+
+$elapsed = (hrtime(true) - $start) / 1e9;
+$perParse = $elapsed / $iterations * 1000;
+$php = Handlebars::precompile($template, $options);
+$codeBytes = strlen($php);
+$partials = [];
+
+foreach ($partialTemplates as $name => $src) {
+    $code = Handlebars::precompile($src, $options);
+    $codeBytes += strlen($code);
+    $partials[$name] = Handlebars::template($code);
+}
+
+printf(
+    "Compiled %d times in %.3f s  |  %.3f ms/compile  |  %.1f KB code  (%d partials)\n",
+    $iterations,
+    $elapsed,
+    $perParse,
+    $codeBytes / 1024,
+    count($partialTemplates),
+);
 
 $data = [
     'lang' => 'en',
