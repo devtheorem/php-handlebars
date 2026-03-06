@@ -859,7 +859,12 @@ final class Compiler
 
     private static function blockClosure(string $body): string
     {
-        return "function(\$cx, \$in) {return $body;}";
+        $preamble = '';
+        if (str_contains($body, '$cx->scopes[count($cx->scopes)-')) {
+            $preamble = '$sc=count($cx->scopes);';
+            $body = str_replace('$cx->scopes[count($cx->scopes)-', '$cx->scopes[$sc-', $body);
+        }
+        return "function(\$cx, \$in) {{$preamble}return $body;}";
     }
 
     private static function escape(string $string): string
