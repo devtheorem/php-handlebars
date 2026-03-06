@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="{{lang}}">
+<head>
+    <meta charset="UTF-8">
+    <title>{{#if pageTitle}}{{pageTitle}}{{else}}{{siteName}} &mdash; Default Title{{/if}}</title>
+    {{!-- Stylesheet links --}}
+    {{#each stylesheets}}
+        <link rel="stylesheet" href="{{url}}" {{#if media}}media="{{media}}"{{/if}}>
+    {{/each}}
+</head>
+<body class="{{bodyClass}} {{#if user.isAdmin}}is-admin{{/if}} {{#unless user.verified}}unverified{{/unless}}">
+
+{{!-- ==================== HEADER ==================== --}}
+<header id="site-header" {{#if sticky}}data-sticky="true"{{/if}}>
+    <nav>
+        <a class="logo" href="{{rootUrl}}">
+            {{{logoHtml}}}
+            <span>{{siteName}}</span>
+        </a>
+
+        <ul class="nav-links">
+            {{#each navItems}}
+                {{> nav-item}}
+            {{/each}}
+        </ul>
+
+        {{#if user}}
+            <div class="user-menu">
+                <img src="{{user.avatar}}" alt="{{user.name}}" width="32" height="32">
+                <span>{{user.name}}</span>
+                <ul class="user-dropdown">
+                    <li><a href="/profile/{{user.id}}">{{t "nav.profile"}}</a></li>
+                    <li><a href="/settings">{{t "nav.settings"}}</a></li>
+                    {{#if user.isAdmin}}<li><a href="/admin">{{t "nav.admin"}}</a></li>{{/if}}
+                    <li class="divider"></li>
+                    <li><a href="/logout">{{t "nav.logout"}}</a></li>
+                </ul>
+            </div>
+        {{else}}
+            <a class="btn btn-primary" href="/login">{{t "nav.login"}}</a>
+        {{/if}}
+    </nav>
+</header>
+
+{{!-- ==================== ALERTS ==================== --}}
+{{#each alerts}}
+    {{> alert}}
+{{/each}}
+
+{{!-- ==================== MAIN CONTENT ==================== --}}
+<main id="main-content">
+    <div class="container{{#if fluid}}-fluid{{/if}}">
+
+        {{!-- Breadcrumbs --}}
+        {{> breadcrumbs}}
+
+        {{!-- Page heading --}}
+        {{> page-header}}
+
+        {{!-- Data table --}}
+        {{#if items}}
+            <div class="table-responsive">
+                <table class="table table-striped{{#if hoverable}} table-hover{{/if}}{{#if bordered}} table-bordered{{/if}}">
+                    <thead>
+                    <tr>
+                        {{#each columns}}
+                            <th {{#if width}}style="width:{{width}}"{{/if}} class="{{#if sortable}}sortable{{/if}}{{#if (eq currentSort.key key)}} sort-{{currentSort.dir}}{{/if}}">
+                                {{#if sortable}}
+                                    <a href="{{../sortBaseUrl}}?sort={{key}}&dir={{#if (and (eq ../currentSort.key key) (eq ../currentSort.dir "asc"))}}desc{{else}}asc{{/if}}">
+                                    {{label}}
+                                    </a>
+                                {{else}}
+                                    {{label}}
+                                {{/if}}
+                            </th>
+                        {{/each}}
+                        {{#if showActions}}<th class="actions-col">{{t "table.actions"}}</th>{{/if}}
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {{#each items as |item i|}}
+                        <tr class="{{#if item.deleted}}deleted{{/if}} {{#if (eq @index ../selectedIndex)}}selected{{/if}}" data-id="{{item.id}}">
+                            {{#each ../columns}}
+                                <td class="col-{{key}}{{#if item.highlighted}} highlighted{{/if}}">
+                                    {{#if (eq type "boolean")}}
+                                        {{#if (lookup item key)}}<i class="icon-check text-success"></i>{{else}}<i class="icon-times text-muted"></i>{{/if}}
+                                    {{else if (eq type "date")}}
+                                        <time datetime="{{formatDate (lookup item key) "Y-m-d"}}">{{formatDate (lookup item key) format}}</time>
+                                    {{else if (eq type "currency")}}
+                                        {{formatCurrency (lookup item key) ../currency}}
+                                    {{else if (eq type "link")}}
+                                        <a href="{{replace linkTemplate "{id}" item.id}}">{{lookup item key}}</a>
+                                    {{else}}
+                                        {{lookup item key}}
+{{!--- avoid extra whitespace ---}}{{/if}}
+                                </td>
+                            {{/each}}
+                            {{#if ../showActions}}
+                                <td class="actions">
+                                    {{#each ../rowActions}}
+                                        {{#unless (and requiresAdmin (not item.isAdmin))}}
+                                            <a href="{{replace urlTemplate "{id}" item.id}}"
+                                               class="btn btn-sm btn-{{style}}"
+                                               {{#if confirm}}data-confirm="{{t confirmKey}}"{{/if}}
+                                               title="{{t labelKey}}">
+                                                <i class="icon-{{icon}}"></i>
+                                            </a>
+                                        {{/unless}}
+                                    {{/each}}
+                                </td>
+                            {{/if}}
+                        </tr>
+                    {{else}}
+                        <tr><td colspan="{{columnCount}}" class="empty-message">{{t "table.empty"}}</td></tr>
+                    {{/each}}
+                    </tbody>
+                    {{#if showTotals}}
+                        <tfoot>
+                        <tr class="totals">
+                            {{#each columns}}
+                                <td>{{#if showTotal}}{{formatCurrency (lookup ../totals key) ../../currency}}{{/if}}</td>
+                            {{/each}}
+                            {{#if ../showActions}}<td></td>{{/if}}
+                        </tr>
+                        </tfoot>
+                    {{/if}}
+                </table>
+            </div>
+
+            {{!-- Pagination --}}
+            {{> pagination}}
+
+        {{else}}
+
+        {{!-- Empty state --}}
+            <div class="empty-state">
+                {{#if emptyState.illustration}}{{{emptyState.illustration}}}{{/if}}
+                <h3>{{emptyState.heading}}</h3>
+                {{#if emptyState.message}}<p>{{emptyState.message}}</p>{{/if}}
+                {{#if emptyState.action}}
+                    <a href="{{emptyState.action.url}}" class="btn btn-primary">{{emptyState.action.label}}</a>
+                {{/if}}
+            </div>
+
+        {{/if}}
+
+        {{!-- Sidebar panels --}}
+        {{#each sidePanels}}
+            {{> side-panel}}
+        {{/each}}
+
+    </div>
+</main>
+
+{{!-- ==================== FOOTER ==================== --}}
+<footer id="site-footer">
+    <div class="container">
+        <div class="footer-cols">
+            {{#each footerColumns}}
+                {{> footer-col}}
+            {{/each}}
+        </div>
+        <div class="footer-bottom">
+            <p>{{copyright}} {{#if showYear}}{{currentYear}}{{/if}} {{siteName}}</p>
+            {{#if social}}
+                <ul class="social-links">
+                    {{#each social}}
+                        <li><a href="{{url}}" aria-label="{{name}}"><i class="icon-{{icon}}"></i></a></li>
+                    {{/each}}
+                </ul>
+            {{/if}}
+        </div>
+    </div>
+</footer>
+
+{{!-- ==================== SCRIPTS ==================== --}}
+{{#each scripts}}
+    <script src="{{url}}"{{#if defer}} defer{{/if}}{{#if async}} async{{/if}}{{#if integrity}} integrity="{{integrity}}" crossorigin="anonymous"{{/if}}></script>
+{{/each}}
+{{#if inlineScript}}
+    <script>
+            {{{inlineScript}}}
+    </script>
+{{/if}}
+
+</body>
+</html>
