@@ -104,6 +104,53 @@ final class Runtime
     }
 
     /**
+     * Built-in each implementation without HelperOptions overhead.
+     * Emitted by the compiler for known {{#each}} calls in knownHelpersOnly mode.
+     * @param array<mixed>|null $outerBp null = no block params declared; array = outer block param stack
+     */
+    public static function each(RuntimeContext $cx, mixed $v, mixed $in, ?\Closure $cb, ?\Closure $else, ?array $outerBp = null): string
+    {
+        $items = self::getEachCollection($v, $in);
+        if (!$items) {
+            return $else !== null ? $else($cx, $in) : '';
+        }
+        if ($cb === null) {
+            return '';
+        }
+        $last = count($items) - 1;
+        $ret = '';
+        $i = 0;
+        $savedFrame = $cx->frame;
+        $savedPartials = $cx->partials;
+        $cx->depths[] = $in;
+        if ($outerBp !== null) {
+            foreach ($items as $index => $value) {
+                $cx->frame['key'] = $index;
+                $cx->frame['index'] = $i;
+                $cx->frame['first'] = $i === 0;
+                $cx->frame['last'] = $i === $last;
+                $cx->frame['_parent'] = $savedFrame;
+                $ret .= $cb($cx, $value, [[$value, $index], ...$outerBp]);
+                $i++;
+            }
+        } else {
+            foreach ($items as $index => $value) {
+                $cx->frame['key'] = $index;
+                $cx->frame['index'] = $i;
+                $cx->frame['first'] = $i === 0;
+                $cx->frame['last'] = $i === $last;
+                $cx->frame['_parent'] = $savedFrame;
+                $ret .= $cb($cx, $value);
+                $i++;
+            }
+        }
+        array_pop($cx->depths);
+        $cx->partials = $savedPartials;
+        $cx->frame = $savedFrame;
+        return $ret;
+    }
+
+    /**
      * @param array<mixed> $items
      */
     private static function eachItems(array $items, HelperOptions $options): string
@@ -370,13 +417,7 @@ final class Runtime
         if (is_array($v)) {
             if (array_is_list($v)) {
                 // Sequential array: iterate like HBS.js, with @index/@first/@last/@key tracking.
-                return static::eachItems($v, new HelperOptions(
-                    scope: $in,
-                    data: $cx->frame,
-                    cx: $cx,
-                    cb: $cb,
-                    inv: $else,
-                ));
+                return static::each($cx, $v, $in, $cb, $else);
             }
             // Associative array: use as context (like a JS object)
             $push = $in !== $v;

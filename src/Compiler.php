@@ -301,6 +301,15 @@ final class Compiler
                 return "($cond ? $body : '')";
             }
 
+            if ($this->canUseDirectEach($block, $helperName)) {
+                $savedHelperArgs = $this->compilingHelperArgs;
+                $this->compilingHelperArgs = true;
+                $collection = $this->compileExpression($block->params[0]);
+                $this->compilingHelperArgs = $savedHelperArgs;
+                $blockFn = self::blockClosure($body, inheritsBp: $inheritsBp);
+                return self::getRuntimeFunc('each', "\$cx, $collection, \$in, null, $blockFn");
+            }
+
             $params = $this->compileParams($block->params, $block->hash);
             $blockFn = self::blockClosure($body, inheritsBp: $inheritsBp);
 
@@ -316,6 +325,20 @@ final class Compiler
             return "($cond ? $body : $elseBody)";
         }
 
+        if ($this->canUseDirectEach($block, $helperName)) {
+            $savedHelperArgs = $this->compilingHelperArgs;
+            $this->compilingHelperArgs = true;
+            $collection = $this->compileExpression($block->params[0]);
+            $this->compilingHelperArgs = $savedHelperArgs;
+            $else = $this->compileElseClause($block);
+            $blockFn = self::blockClosure($body, (bool) $bp, $inheritsBp);
+            if ($bp) {
+                $outerBp = $this->outerBpExpr();
+                return self::getRuntimeFunc('each', "\$cx, $collection, \$in, $blockFn, $else, $outerBp");
+            }
+            return self::getRuntimeFunc('each', "\$cx, $collection, \$in, $blockFn, $else");
+        }
+
         $params = $this->compileParams($block->params, $block->hash);
         $else = $this->compileElseClause($block);
         $blockFn = self::blockClosure($body, (bool) $bp, $inheritsBp);
@@ -326,6 +349,19 @@ final class Compiler
             return self::getRuntimeFunc('hbbch', "\$cx, '$helperName', $params, \$in, $blockFn, $else, $bpCount, $outerBp");
         }
         return self::getRuntimeFunc('hbbch', "\$cx, '$helperName', $params, \$in, $blockFn, $else");
+    }
+
+    /**
+     * Returns true when a known each block can use the direct LR::each() call,
+     * bypassing HelperOptions allocation and fn() overhead.
+     * Only in knownHelpersOnly mode (no runtime helper override expected).
+     */
+    private function canUseDirectEach(BlockStatement $block, string $helperName): bool
+    {
+        return $this->context->options->knownHelpersOnly
+            && $helperName === 'each'
+            && count($block->params) === 1
+            && $block->hash === null;
     }
 
     /**
