@@ -53,25 +53,7 @@ final class Runtime
                     throw new \Exception('Must pass iterator to #each');
                 }
                 $items = self::getEachCollection($args[0], $options->scope);
-                if (!$items) {
-                    return $options->inverse();
-                }
-                $last = count($items) - 1;
-                $ret = '';
-                $i = 0;
-                foreach ($items as $index => $value) {
-                    $ret .= $options->fn($value, [
-                        'data' => [
-                            'key' => $index,
-                            'index' => $i,
-                            'first' => $i === 0,
-                            'last' => $i === $last,
-                        ],
-                        'blockParams' => [$value, $index],
-                    ]);
-                    $i++;
-                }
-                return $ret;
+                return self::eachItems($items, $options);
             },
             'with' => static function (mixed ...$args): string {
                 /** @var HelperOptions $options */
@@ -124,6 +106,35 @@ final class Runtime
                 return $context === true ? $options->fn() : $options->fn($context);
             },
         ];
+    }
+
+    /**
+     * @param array<mixed> $items
+     */
+    private static function eachItems(array $items, HelperOptions $options): string
+    {
+        if (!$items) {
+            return $options->inverse();
+        }
+        if (!isset($options->fn)) {
+            return '';
+        }
+        $last = count($items) - 1;
+        $ret = '';
+        $i = 0;
+        foreach ($items as $index => $value) {
+            $ret .= $options->fn($value, [
+                'data' => [
+                    'key' => $index,
+                    'index' => $i,
+                    'first' => $i === 0,
+                    'last' => $i === $last,
+                ],
+                'blockParams' => [$value, $index],
+            ]);
+            $i++;
+        }
+        return $ret;
     }
 
     /**
@@ -350,17 +361,13 @@ final class Runtime
         // Lambda functions in block position receive HelperOptions directly.
         // This must be checked before blockHelperMissing routing.
         if ($v instanceof \Closure) {
-            $options = new HelperOptions(
-                name: '',
-                hash: [],
-                blockParams: 0,
+            $result = $v(new HelperOptions(
                 scope: $in,
                 data: $cx->frame,
                 cx: $cx,
                 cb: $cb,
                 inv: $else,
-            );
-            $result = $v($options);
+            ));
             return static::applyBlockHelperMissing($cx, $result, $in, $cb, $else);
         }
 
@@ -371,17 +378,14 @@ final class Runtime
         // Fallback for knownHelpersOnly mode (helperName is null).
         if (is_array($v)) {
             if (array_is_list($v)) {
-                // Sequential array: iterate like HBS.js
-                if (!$v) {
-                    return $else !== null ? $else($cx, $in) : '';
-                }
-                $cx->depths[] = $in;
-                $ret = '';
-                foreach ($v as $item) {
-                    $ret .= $cb($cx, $item);
-                }
-                array_pop($cx->depths);
-                return $ret;
+                // Sequential array: iterate like HBS.js, with @index/@first/@last/@key tracking.
+                return static::eachItems($v, new HelperOptions(
+                    scope: $in,
+                    data: $cx->frame,
+                    cx: $cx,
+                    cb: $cb,
+                    inv: $else,
+                ));
             }
             // Associative array: use as context (like a JS object)
             $push = $in !== $v;
@@ -512,11 +516,10 @@ final class Runtime
     private static function invokeInlineHelper(RuntimeContext $cx, \Closure $helper, string $name, array $positional, array $hash, mixed &$_this): mixed
     {
         $options = new HelperOptions(
-            name: $name,
-            hash: $hash,
-            blockParams: 0,
             scope: $_this,
             data: $cx->frame,
+            name: $name,
+            hash: $hash,
         );
         $args = $positional;
         $args[] = $options;
@@ -531,11 +534,11 @@ final class Runtime
     private static function invokeBlockHelper(RuntimeContext $cx, \Closure $helper, string $name, array $positional, array $hash, array $blockParamNames, mixed &$_this, ?\Closure $cb, ?\Closure $else): string
     {
         $options = new HelperOptions(
+            scope: $_this,
+            data: $cx->frame,
             name: $name,
             hash: $hash,
             blockParams: count($blockParamNames),
-            scope: $_this,
-            data: $cx->frame,
             cx: $cx,
             cb: $cb,
             inv: $else,

@@ -14,16 +14,16 @@ enum Scope
 class HelperOptions
 {
     /**
-     * @param array<mixed> $hash
      * @param array<mixed> $data
+     * @param array<mixed> $hash
      * @param array<string> $blockParamNames
      */
     public function __construct(
-        public readonly string $name,
-        public readonly array $hash,
-        public readonly int $blockParams,
         public mixed &$scope,
         public array &$data,
+        public readonly string $name = '',
+        public readonly array $hash = [],
+        public readonly int $blockParams = 0,
         private readonly ?RuntimeContext $cx = null,
         private readonly ?Closure $cb = null,
         private readonly ?Closure $inv = null,

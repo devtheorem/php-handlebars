@@ -1583,6 +1583,18 @@ class RegressionTest extends TestCase
             ],
 
             [
+                // inverted each: non-empty array renders nothing, empty array renders body
+                'template' => '{{^each items}}EMPTY{{/each}}',
+                'data' => ['items' => ['a', 'b']],
+                'expected' => '',
+            ],
+            [
+                'template' => '{{^each items}}EMPTY{{/each}}',
+                'data' => ['items' => []],
+                'expected' => 'EMPTY',
+            ],
+
+            [
                 // ensure that partial names are correctly escaped
                 'template' => '{{> "foo\button\'"}} {{> "bar\\\link"}}',
                 'options' => new Options(
@@ -2053,10 +2065,10 @@ class RegressionTest extends TestCase
             ],
             [
                 // non-empty array renders fn block even when else is present
-                'template' => '{{#items}}YES{{else}}NO{{/items}}',
+                'template' => '{{#items}}{{@index}}: {{.}}{{#if @last}}last!{{else}}, {{/if}}{{else}}NO{{/items}}',
                 'options' => new Options(knownHelpersOnly: true),
                 'data' => ['items' => ['a', 'b']],
-                'expected' => 'YESYES',
+                'expected' => '0: a, 1: blast!',
             ],
             [
                 // ../path resolves correctly when array context differs from enclosing context
