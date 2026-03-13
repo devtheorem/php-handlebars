@@ -16,7 +16,7 @@ class HelperOptions
     /**
      * @param array<mixed> $data
      * @param array<mixed> $hash
-     * @param array<string> $blockParamNames
+     * @param array<mixed> $outerBlockParams outer block param stack, passed as trailing elements of the stack
      */
     public function __construct(
         public mixed &$scope,
@@ -27,7 +27,7 @@ class HelperOptions
         private readonly ?RuntimeContext $cx = null,
         private readonly ?Closure $cb = null,
         private readonly ?Closure $inv = null,
-        private readonly array $blockParamNames = [],
+        private readonly array $outerBlockParams = [],
     ) {}
 
     /**
@@ -51,27 +51,26 @@ class HelperOptions
             return '';
         }
         $cx = $this->cx;
+        $bpStack = null;
 
-        if (isset($data['data'])) {
-            $savedFrame = $cx->frame;
-            if (count($savedFrame) === 1) {
-                // Fast path: only root in frame, no user @-data to inherit
-                $newFrame = $data['data'];
-            } else {
-                $newFrame = array_replace($savedFrame, $data['data']);
+        if ($data !== null) {
+            if (isset($data['data'])) {
+                $savedFrame = $cx->frame;
+                if (count($savedFrame) === 1) {
+                    // Fast path: only root in frame, no user @-data to inherit
+                    $newFrame = $data['data'];
+                } else {
+                    $newFrame = array_replace($savedFrame, $data['data']);
+                }
+                $newFrame['root'] = &$cx->data['root'];
+                $newFrame['_parent'] = $savedFrame;
+                $cx->frame = $newFrame;
             }
-            $newFrame['root'] = &$cx->data['root'];
-            $newFrame['_parent'] = $savedFrame;
-            $cx->frame = $newFrame;
-        }
 
-        $hasBp = isset($data['blockParams']) && $this->blockParamNames;
-        if ($hasBp) {
-            $ex = [];
-            foreach ($this->blockParamNames as $i => $name) {
-                $ex[$name] = $data['blockParams'][$i];
+            if (isset($data['blockParams'])) {
+                // Build block params stack: current level prepended to outer stack.
+                $bpStack = [$data['blockParams'], ...$this->outerBlockParams];
             }
-            array_unshift($cx->blParam, $ex);
         }
 
         $cb = $this->cb;
@@ -79,14 +78,13 @@ class HelperOptions
         $savedPartials = $cx->partials;
 
         if ($context === $scope) {
-            // fn($currentContext): explicit same-context pass, no depths push.
-            // Equivalent to HBS.js options.fn(this).
-            $ret = $cb($cx, $scope);
+            // explicit same-context pass, equivalent to HBS.js options.fn(this)
+            $ret = $cb($cx, $scope, $bpStack);
         } else {
-            // fn() or fn($newContext): push enclosing context onto depths.
-            // fn() equivalent to HBS.js options.fn() (undefined context uses current scope).
+            // new context - push onto depths, equivalent to HBS.js options.fn()
             $cx->depths[] = $scope;
-            $ret = $cb($cx, $context === Scope::Use ? $scope : $context);
+            $newCtx = $context === Scope::Use ? $scope : $context;
+            $ret = $cb($cx, $newCtx, $bpStack);
             array_pop($cx->depths);
         }
 
@@ -94,9 +92,6 @@ class HelperOptions
             $cx->frame = $savedFrame;
         }
         $cx->partials = $savedPartials;
-        if ($hasBp) {
-            array_shift($cx->blParam);
-        }
         return $ret;
     }
 

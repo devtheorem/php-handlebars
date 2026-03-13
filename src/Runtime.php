@@ -189,7 +189,6 @@ final class Runtime
                 partials: $parentCx->partials,
                 depths: $parentCx->depths,
                 data: $root,
-                blParam: $parentCx->blParam,
                 partialId: $parentCx->partialId,
                 frame: $parentCx->frame,
             );
@@ -236,9 +235,6 @@ final class Runtime
     {
         $helper = $cx->helpers[$name] ?? null;
         if ($helper !== null) {
-            if (isset($cx->blParam[0][$name])) {
-                return $cx->blParam[0][$name];
-            }
             return static::invokeInlineHelper($cx, $helper, $name, [], [], $_this);
         }
         if (is_array($_this) && array_key_exists($name, $_this)) {
@@ -287,10 +283,10 @@ final class Runtime
     public static function isech(RuntimeContext $cx, mixed $v, mixed $in, \Closure $else, string $helperName): string
     {
         if (isset($cx->helpers[$helperName])) {
-            return static::hbbch($cx, $helperName, [], [], [], $in, null, $else);
+            return static::hbbch($cx, $helperName, [], [], $in, null, $else);
         }
         if (isset($cx->helpers['blockHelperMissing'])) {
-            return static::hbbch($cx, 'blockHelperMissing', [$v], [], [], $in, null, $else, $helperName);
+            return static::hbbch($cx, 'blockHelperMissing', [$v], [], $in, null, $else, 0, [], $helperName);
         }
         return static::isec($v) ? $else($cx, $in) : '';
     }
@@ -350,7 +346,7 @@ final class Runtime
     public static function sec(RuntimeContext $cx, mixed $v, mixed $in, \Closure $cb, ?\Closure $else = null, ?string $helperName = null): string
     {
         if ($helperName !== null && isset($cx->helpers[$helperName])) {
-            return static::hbbch($cx, $helperName, [], [], [], $in, $cb, $else);
+            return static::hbbch($cx, $helperName, [], [], $in, $cb, $else);
         }
 
         // Lambda functions in block position receive HelperOptions directly.
@@ -367,7 +363,7 @@ final class Runtime
         }
 
         if ($helperName !== null && isset($cx->helpers['blockHelperMissing'])) {
-            return static::hbbch($cx, 'blockHelperMissing', [$v], [], [], $in, $cb, $else, $helperName);
+            return static::hbbch($cx, 'blockHelperMissing', [$v], [], $in, $cb, $else, 0, [], $helperName);
         }
 
         // Fallback for knownHelpersOnly mode (helperName is null).
@@ -474,6 +470,19 @@ final class Runtime
     }
 
     /**
+     * Like in() but only registers the partial if it is not already present in the context.
+     * Used for {{#> partial}}fallback{{/partial}} blocks when the partial was not found at compile time.
+     *
+     * @param string $p partial name
+     * @param \Closure $code the compiled fallback partial code
+     */
+    public static function inFallback(RuntimeContext $cx, string $p, \Closure $code): string
+    {
+        $cx->partials[$p] ??= $code;
+        return '';
+    }
+
+    /**
      * For {{#* inlinepartial}} .
      *
      * @param string $p partial name
@@ -539,20 +548,20 @@ final class Runtime
     /**
      * @param array<mixed> $positional
      * @param array<string, mixed> $hash
-     * @param array<string> $blockParamNames
+     * @param array<mixed> $outerBlockParams
      */
-    private static function invokeBlockHelper(RuntimeContext $cx, \Closure $helper, string $name, array $positional, array $hash, array $blockParamNames, mixed &$_this, ?\Closure $cb, ?\Closure $else): string
+    private static function invokeBlockHelper(RuntimeContext $cx, \Closure $helper, string $name, array $positional, array $hash, int $blockParamCount, array $outerBlockParams, mixed &$_this, ?\Closure $cb, ?\Closure $else): string
     {
         $options = new HelperOptions(
             scope: $_this,
             data: $cx->frame,
             name: $name,
             hash: $hash,
-            blockParams: count($blockParamNames),
+            blockParams: $blockParamCount,
             cx: $cx,
             cb: $cb,
             inv: $else,
-            blockParamNames: $blockParamNames,
+            outerBlockParams: $outerBlockParams,
         );
         $args = $positional;
         $args[] = $options;
@@ -567,9 +576,6 @@ final class Runtime
     {
         $helper = $cx->helpers[$name] ?? null;
         if ($helper !== null) {
-            if (isset($cx->blParam[0][$name])) {
-                return $cx->blParam[0][$name];
-            }
             return static::invokeInlineHelper($cx, $helper, $name, $positional, $hash, $_this);
         }
 
@@ -597,10 +603,6 @@ final class Runtime
      */
     public static function hbch(RuntimeContext $cx, string $ch, array $positional, array $hash, mixed &$_this, ?string $logicalName = null): mixed
     {
-        if (isset($cx->blParam[0][$ch])) {
-            return $cx->blParam[0][$ch];
-        }
-
         return static::invokeInlineHelper($cx, $cx->helpers[$ch], $logicalName ?? $ch, $positional, $hash, $_this);
     }
 
@@ -610,37 +612,37 @@ final class Runtime
      * @param string $ch the name of custom helper to be executed
      * @param array<mixed> $positional
      * @param array<string, mixed> $hash
-     * @param array<string> $blockParamNames
      * @param mixed $_this current rendering context for the helper
      * @param \Closure|null $cb callback function to render child context (null for inverted blocks)
      * @param \Closure|null $else callback function to render child context when {{else}}
+     * @param array<mixed> $outerBlockParams outer block param stack for block params declared by the template
      * @param string|null $logicalName when set, use as options.name instead of $ch
      */
-    public static function hbbch(RuntimeContext $cx, string $ch, array $positional, array $hash, array $blockParamNames, mixed &$_this, ?\Closure $cb, ?\Closure $else = null, ?string $logicalName = null): mixed
+    public static function hbbch(RuntimeContext $cx, string $ch, array $positional, array $hash, mixed &$_this, ?\Closure $cb, ?\Closure $else = null, int $blockParamCount = 0, array $outerBlockParams = [], ?string $logicalName = null): mixed
     {
-        return static::invokeBlockHelper($cx, $cx->helpers[$ch], $logicalName ?? $ch, $positional, $hash, $blockParamNames, $_this, $cb, $else);
+        return static::invokeBlockHelper($cx, $cx->helpers[$ch], $logicalName ?? $ch, $positional, $hash, $blockParamCount, $outerBlockParams, $_this, $cb, $else);
     }
 
     /**
      * Like hbbch but for non-registered paths (pathed/depthed/scoped block calls with params).
      * @param array<mixed> $positional
      * @param array<string, mixed> $hash
-     * @param array<string> $blockParamNames
      * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
      * @param \Closure $cb callback function to render child context
      * @param \Closure|null $else callback function to render child context when {{else}}
+     * @param array<mixed> $outerBlockParams outer block param stack for block params declared by the template
      */
-    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $positional, array $hash, array $blockParamNames, mixed &$_this, \Closure $cb, ?\Closure $else = null): mixed
+    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $positional, array $hash, mixed &$_this, \Closure $cb, ?\Closure $else = null, int $blockParamCount = 0, array $outerBlockParams = []): mixed
     {
         $helper = $cx->helpers[$name] ?? null;
         if ($helper !== null) {
-            return static::invokeBlockHelper($cx, $helper, $name, $positional, $hash, $blockParamNames, $_this, $cb, $else);
+            return static::invokeBlockHelper($cx, $helper, $name, $positional, $hash, $blockParamCount, $outerBlockParams, $_this, $cb, $else);
         }
 
         if (!$callable instanceof \Closure) {
             $helperMissing = $cx->helpers['helperMissing'] ?? null;
             if ($helperMissing !== null) {
-                return static::invokeBlockHelper($cx, $helperMissing, $name, $positional, $hash, $blockParamNames, $_this, $cb, $else);
+                return static::invokeBlockHelper($cx, $helperMissing, $name, $positional, $hash, $blockParamCount, $outerBlockParams, $_this, $cb, $else);
             }
             throw new \Exception(
                 $callable === null
@@ -649,7 +651,7 @@ final class Runtime
             );
         }
 
-        return static::invokeBlockHelper($cx, $callable, '', $positional, $hash, $blockParamNames, $_this, $cb, $else);
+        return static::invokeBlockHelper($cx, $callable, '', $positional, $hash, $blockParamCount, $outerBlockParams, $_this, $cb, $else);
     }
 
     /**
