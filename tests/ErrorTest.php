@@ -150,14 +150,6 @@ class ErrorTest extends TestCase
                 'template' => '{{#each}}OK!{{/each}}',
                 'expected' => 'Must pass iterator to #each',
             ],
-            [
-                'template' => '{{lookup}}',
-                'expected' => '{{lookup}} requires 2 arguments',
-            ],
-            [
-                'template' => '{{lookup foo}}',
-                'expected' => '{{lookup}} requires 2 arguments',
-            ],
         ];
     }
 

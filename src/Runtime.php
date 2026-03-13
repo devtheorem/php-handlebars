@@ -67,12 +67,7 @@ final class Runtime
                 }
                 return $options->inverse();
             },
-            'lookup' => static function (mixed ...$args): mixed {
-                array_pop($args); // remove HelperOptions
-                if (count($args) !== 2) {
-                    throw new \Exception('{{lookup}} requires 2 arguments');
-                }
-                [$obj, $key] = $args;
+            'lookup' => static function (mixed $obj, string|int $key): mixed {
                 if (is_array($obj)) {
                     return $obj[$key] ?? null;
                 }
@@ -515,6 +510,21 @@ final class Runtime
      */
     private static function invokeInlineHelper(RuntimeContext $cx, \Closure $helper, string $name, array $positional, array $hash, mixed &$_this): mixed
     {
+        /** @var \WeakMap<\Closure, int>|null $paramCounts */
+        static $paramCounts = null;
+        $paramCounts ??= new \WeakMap();
+
+        if (!isset($paramCounts[$helper])) {
+            $rf = new \ReflectionFunction($helper);
+            $params = $rf->getParameters();
+            $paramCounts[$helper] = ($params && end($params)->isVariadic()) ? 0 : $rf->getNumberOfParameters();
+        }
+
+        $n = $paramCounts[$helper];
+        if ($n >= 1 && $n <= count($positional)) {
+            return $helper(...$positional);
+        }
+
         $options = new HelperOptions(
             scope: $_this,
             data: $cx->frame,
