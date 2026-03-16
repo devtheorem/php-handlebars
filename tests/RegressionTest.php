@@ -202,7 +202,7 @@ class RegressionTest extends TestCase
                 'desc' => 'LNC#49 - custom helper alias',
                 'template' => '{{date_format date "M j, Y"}}',
                 'helpers' => [
-                    'date_format' => fn($date, $format) => date_format($date, $format),
+                    'date_format' => date_format(...),
                 ],
                 'data' => ['date' => new \DateTime('2014-06-06')],
                 'expected' => 'Jun 6, 2014',
