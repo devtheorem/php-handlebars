@@ -556,6 +556,8 @@ class RegressionTest extends TestCase
             [
                 'desc' => 'LNC#233 - overload if helper',
                 'template' => '{{#if foo}}FOO{{else}}BAR{{/if}}',
+                // Opt out of compile-time inlining so the custom runtime helper is dispatched
+                'options' => new Options(knownHelpers: ['if' => false]),
                 'helpers' => [
                     'if' => fn($arg, HelperOptions $options) => $options->fn(),
                 ],
