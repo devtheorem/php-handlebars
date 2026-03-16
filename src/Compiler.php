@@ -285,6 +285,17 @@ final class Compiler
         }
         // For inverted blocks the fn body comes from the inverse program; for normal blocks, the program.
         $fnProgram = $inverted ? $block->inverse : $block->program;
+
+        // Inline if/unless as ternary — eliminates hbbch dispatch and HelperOptions allocation.
+        // Safe because if/unless don't change scope, so $cx and $in are already correct.
+        // Negate for 'unless' in a normal block, or 'if' in an inverted block (swapped semantics).
+        if ($this->canInlineConditional($block, $name, $fnProgram->blockParams)) {
+            $cond = $this->compileConditionalExpr($block->params[0], $name === ($inverted ? 'if' : 'unless'));
+            $body = $this->compileProgram($fnProgram);
+            $elseBody = $inverted ? "''" : $this->compileProgramOrEmpty($block->inverse);
+            return "($cond ? $body : $elseBody)";
+        }
+
         $blockFn = $this->compileProgramWithBlockParams($fnProgram);
         [$fn, $else] = $inverted
             ? ['null', $blockFn]
@@ -297,6 +308,48 @@ final class Compiler
 
         $trailingArgs = ($bpCount > 0 || $outerBp !== '[]') ? ", $bpCount, $outerBp" : '';
         return self::getRuntimeFunc('hbbch', "\$cx, \$cx->helpers[$helperName], $helperName, $params, \$in, $fn, $else$trailingArgs");
+    }
+
+    /**
+     * Returns true when an if/unless block can be safely inlined as a ternary expression.
+     * Requires: no hash options (e.g. includeZero), no block params, exactly one condition param.
+     * @param string[] $bp
+     */
+    private function canInlineConditional(BlockStatement $block, string $helperName, array $bp): bool
+    {
+        return $this->isKnownHelper($helperName)
+            && ($helperName === 'if' || $helperName === 'unless')
+            && count($block->params) === 1
+            && $block->hash === null
+            && !$bp;
+    }
+
+    /**
+     * Compile the condition expression for an inlined if/unless ternary.
+     * For simple single-segment paths, routes through cv() which already resolves closures,
+     * so ifvar() suffices. For all other expressions, closures at nested paths are not
+     * invoked (not a real-world or spec concern).
+     * @param bool $negate true for `unless` or inverted `{{^if}}`
+     */
+    private function compileConditionalExpr(Expression $condExpr, bool $negate): string
+    {
+        $part = $condExpr instanceof PathExpression ? ($condExpr->parts[0] ?? null) : null;
+        if ($condExpr instanceof PathExpression
+            && !$condExpr->data
+            && $condExpr->depth === 0
+            && is_string($part)
+            && !self::scopedId($condExpr)
+            && $this->lookupBlockParam($part) === null
+        ) {
+            $val = self::getRuntimeFunc('cv', '$in, ' . self::quote($part));
+        } else {
+            $savedHelperArgs = $this->compilingHelperArgs;
+            $this->compilingHelperArgs = true;
+            $val = $this->compileExpression($condExpr);
+            $this->compilingHelperArgs = $savedHelperArgs;
+        }
+        $cond = self::getRuntimeFunc('ifvar', $val);
+        return $negate ? "!$cond" : $cond;
     }
 
     private function compileDynamicBlockHelper(BlockStatement $block, string $name, string $varPath = 'null'): string
