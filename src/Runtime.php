@@ -248,11 +248,9 @@ final class Runtime
     }
 
     /**
-     * HTML encode {{var}} just like handlebars.js
-     *
-     * @param array<array<mixed>|string|int>|string|SafeString|int|null $var value to be htmlencoded
+     * HTML encode {{var}} just like Handlebars.js
      */
-    public static function encq($var): string
+    public static function encq(mixed $var): string
     {
         if ($var instanceof SafeString) {
             return (string) $var;
@@ -263,23 +261,21 @@ final class Runtime
 
     /**
      * Get string representation for output
-     *
-     * @param array<mixed>|string|StringObject|int|bool|null $v value to be output
      */
-    public static function raw(array|string|StringObject|int|bool|null $v): string
+    public static function raw(mixed $value): string
     {
-        if ($v === true) {
+        if ($value === true) {
             return 'true';
         }
 
-        if ($v === false) {
+        if ($value === false) {
             return 'false';
         }
 
-        if (is_array($v)) {
-            if (array_is_list($v)) {
+        if (is_array($value)) {
+            if (array_is_list($value)) {
                 $ret = '';
-                foreach ($v as $vv) {
+                foreach ($value as $vv) {
                     $ret .= static::raw($vv) . ',';
                 }
                 return substr($ret, 0, -1);
@@ -288,7 +284,7 @@ final class Runtime
             }
         }
 
-        return "$v";
+        return "$value";
     }
 
     /**

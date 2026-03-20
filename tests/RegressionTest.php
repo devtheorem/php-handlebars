@@ -1680,6 +1680,13 @@ class RegressionTest extends TestCase
     {
         return [
             [
+                'desc' => '#11 - floats are output as expected',
+                'template' => "{{{foo}}}",
+                'data' => ['foo' => 1.23],
+                'expected' => '1.23',
+            ],
+
+            [
                 'desc' => 'LNC#66 - support {{&foo}} mustache raw syntax',
                 'template' => '{{&foo}} , {{foo}}, {{{foo}}}',
                 'data' => ['foo' => 'Test & " \' :)'],
