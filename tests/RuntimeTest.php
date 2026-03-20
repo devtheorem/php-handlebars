@@ -34,6 +34,16 @@ class RuntimeTest extends TestCase
         $this->assertFalse(Runtime::isec(['1']));
     }
 
+    public function testRaw(): void
+    {
+        $this->assertEquals('1', Runtime::raw(1));
+        $this->assertEquals('1.1', Runtime::raw(1.1));
+        $this->assertEquals('true', Runtime::raw(true));
+        $this->assertEquals('false', Runtime::raw(false));
+        $this->assertEquals('0,1', Runtime::raw([0, 1]));
+        $this->assertEquals('', Runtime::raw(null));
+    }
+
     private static function createStringable(string $value): \Stringable
     {
         return new class ($value) implements \Stringable {

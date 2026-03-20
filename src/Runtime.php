@@ -266,7 +266,7 @@ final class Runtime
      *
      * @param array<mixed>|string|StringObject|int|bool|null $v value to be output
      */
-    public static function raw(array|string|StringObject|int|bool|null $v): string
+    public static function raw(array|string|StringObject|int|float|bool|null $v): string
     {
         if ($v === true) {
             return 'true';
