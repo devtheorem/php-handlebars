@@ -161,16 +161,13 @@ class RegressionTest extends TestCase
         };
 
         $equals = function (mixed $a, mixed $b, HelperOptions $options) {
-            $jsEquals = function (mixed $a, mixed $b): bool {
-                if ($a === null || $b === null) {
-                    // in JS, null is not equal to blank string or false or zero
-                    return $a === $b;
-                }
+            // In JS, null is not equal to blank string or false or zero,
+            // and when both operands are strings no coercion is performed.
+            $equal = ($a === null || $b === null || is_string($a) && is_string($b))
+                ? $a === $b
+                : $a == $b;
 
-                return $a == $b;
-            };
-
-            return $jsEquals($a, $b) ? $options->fn() : $options->inverse();
+            return $equal ? $options->fn() : $options->inverse();
         };
 
         return [
