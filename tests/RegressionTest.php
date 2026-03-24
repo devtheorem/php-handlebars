@@ -96,6 +96,7 @@ class RegressionTest extends TestCase
     #[DataProvider("dataClosuresProvider")]
     #[DataProvider("missingDataProvider")]
     #[DataProvider("syntaxProvider")]
+    #[DataProvider("subexpressionPathProvider")]
     public function testIssues(string $template, string $expected, string $desc = '', mixed $data = null, ?Options $options = null, array $helpers = []): void
     {
         $templateSpec = Handlebars::precompile($template, $options ?? new Options());
@@ -2120,6 +2121,47 @@ class RegressionTest extends TestCase
                 'template' => '{{#with "{{"}}{{.}}{{/with}}{{foo}}{{#with "{{"}}{{.}}{{/with}}',
                 'data' => ['foo' => 'YES'],
                 'expected' => '{{YES{{',
+            ],
+        ];
+    }
+
+    /** @return list<RegIssue> */
+    public static function subexpressionPathProvider(): array
+    {
+        return [
+            [
+                'desc' => 'sub-expression as path head: standalone mustache',
+                'template' => '{{(my-helper foo).bar}}',
+                'data' => ['foo' => 'val'],
+                'helpers' => ['my-helper' => fn($arg) => ['bar' => "got:$arg"]],
+                'expected' => 'got:val',
+            ],
+            [
+                'desc' => 'sub-expression as path head: callable',
+                'template' => '{{((my-helper foo).bar baz)}}',
+                'data' => ['foo' => 'x', 'baz' => 'y'],
+                'helpers' => ['my-helper' => fn($arg) => ['bar' => fn($x) => "called:$x"]],
+                'expected' => 'called:y',
+            ],
+            [
+                'desc' => 'sub-expression as path head: argument',
+                'template' => '{{(foo (my-helper bar).baz)}}',
+                'data' => ['bar' => 'hello'],
+                'helpers' => [
+                    'my-helper' => fn($arg) => ['baz' => strtoupper($arg)],
+                    'foo' => fn($val) => "foo:$val",
+                ],
+                'expected' => 'foo:HELLO',
+            ],
+            [
+                'desc' => 'sub-expression as path head: named argument',
+                'template' => '{{(foo bar=(my-helper baz).qux)}}',
+                'data' => ['baz' => 'world'],
+                'helpers' => [
+                    'my-helper' => fn($arg) => ['qux' => strtoupper($arg)],
+                    'foo' => fn(HelperOptions $options) => $options->hash['bar'],
+                ],
+                'expected' => 'WORLD',
             ],
         ];
     }

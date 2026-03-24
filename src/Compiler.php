@@ -534,6 +534,11 @@ final class Compiler
             return self::getRuntimeFunc($fn, self::getRuntimeFunc('dv', $varPath));
         }
 
+        // SubExpression path: {{(path args)}} — compile and render the sub-expression result
+        if ($path instanceof SubExpression) {
+            return self::getRuntimeFunc($fn, $this->SubExpression($path));
+        }
+
         // Literal path — treat as named context lookup or helper call
         $literalKey = $this->getLiteralKeyName($path);
 
@@ -574,6 +579,12 @@ final class Compiler
         };
 
         if ($helperName === null) {
+            // Dynamic callable: path rooted at a sub-expression, e.g. ((helper).prop args)
+            if ($path instanceof PathExpression) {
+                $varPath = $this->PathExpression($path);
+                $args = array_map(fn($p) => $this->compileExpression($p), $expression->params);
+                return self::getRuntimeFunc('dv', implode(', ', [$varPath, ...$args]));
+            }
             throw new \Exception('Sub-expression must be a helper call');
         }
 
@@ -586,10 +597,16 @@ final class Compiler
         $depth = $expression->depth;
         $parts = $expression->parts;
 
-        $base = $this->buildBasePath($data, $depth);
-
-        // Filter out SubExpression parts for string-only operations
-        $stringParts = self::stringPartsOf($parts);
+        // When the path head is a SubExpression (e.g. (helper).foo.bar), compile the
+        // sub-expression as the base and use the string tail as the remaining key accesses.
+        $hasSubExprHead = $expression->head instanceof SubExpression;
+        if ($hasSubExprHead) {
+            $base = '(' . $this->SubExpression($expression->head) . ')';
+            $stringParts = $expression->tail;
+        } else {
+            $base = $this->buildBasePath($data, $depth);
+            $stringParts = self::stringPartsOf($parts);
+        }
 
         // `this` with no parts or empty parts
         if (($expression->this_ && !$parts) || !$stringParts) {
@@ -603,8 +620,8 @@ final class Compiler
             return "isset(\$cx->partials['@partial-block' . \$cx->partialId]) ? true : null";
         }
 
-        // Check block params (depth-0, non-data, non-scoped paths only)
-        if (!$data && $depth === 0 && !self::scopedId($expression)) {
+        // Check block params (depth-0, non-data, non-scoped paths only, not SubExpression-headed)
+        if (!$hasSubExprHead && !$data && $depth === 0 && !self::scopedId($expression)) {
             $bp = $this->lookupBlockParam($stringParts[0]);
             if ($bp !== null) {
                 [$bpDepth, $bpIndex] = $bp;
@@ -631,7 +648,7 @@ final class Compiler
             if ($depth > 0) {
                 $checks[] = "isset($base)";
             }
-            if ($p !== '' && $depth === 0) {
+            if ($p !== '' && $depth === 0 && !$hasSubExprHead) {
                 $checks[] = "isset($base$p)";
             }
             $baseP = "$base$p";
