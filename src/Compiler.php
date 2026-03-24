@@ -78,10 +78,9 @@ final class Compiler
      */
     public function composePHPRender(string $code): string
     {
-        $runtime = Runtime::class;
         $partials = implode(",\n", $this->context->partialCode);
         $closure = self::templateClosure($code, $partials, "\n \$in = &\$cx->data['root'];");
-        return "use {$runtime} as LR;\nreturn $closure;";
+        return "use " . Runtime::class . " as LR;\nreturn $closure;";
     }
 
     /**
@@ -274,7 +273,7 @@ final class Compiler
         if ($bp) {
             array_shift($this->blockParamValues);
         }
-        return self::blockClosure($body, (bool) $program->blockParams, $this->lastCompileProgramHadDirectBpRef);
+        return self::blockClosure($body, (bool) $bp, $this->lastCompileProgramHadDirectBpRef);
     }
 
     private function compileBlockHelper(BlockStatement $block, string $name): string
@@ -422,42 +421,33 @@ final class Compiler
         // appendContent opcode) and invoke the partial with an empty indent so its lines are
         // not additionally indented.
         if ($this->context->options->preventIndent && $statement->indent !== '') {
-            return "$indent." . self::getRuntimeFunc('p', "\$cx, $p, $vars, 0, ''");
+            return "$indent." . self::getRuntimeFunc('p', "\$cx, $p, $vars, ''");
         }
 
-        return self::getRuntimeFunc('p', "\$cx, $p, $vars, 0, $indent");
+        return self::getRuntimeFunc('p', "\$cx, $p, $vars, $indent");
     }
 
     private function PartialBlockStatement(PartialBlockStatement $statement): string
     {
-        $this->context->partialBlockId++;
-        $pid = $this->context->partialBlockId;
-
         // Hoist inline partial registrations so they run before the partial is called.
         // Without this, inline partials defined in the block would only be registered when
         // {{> @partial-block}} is invoked, too late for partials that call them directly.
-        $hoistedParts = [];
+        $parts = [];
         foreach ($statement->program->body as $stmt) {
             if ($stmt instanceof BlockStatement && $stmt->type === 'DecoratorBlock') {
-                $hoistedParts[] = $this->accept($stmt);
+                $parts[] = $this->accept($stmt);
             }
         }
 
         $name = $statement->name;
         $body = $this->compileProgram($statement->program);
+        $partialName = null;
+        $found = false;
 
         if ($name instanceof PathExpression || $name instanceof StringLiteral || $name instanceof NumberLiteral) {
             $partialName = $this->resolvePartialName($name);
             $p = self::quote($partialName);
-        } else {
-            $p = $this->compileExpression($name);
-            $partialName = null;
-        }
-
-        $found = false;
-
-        if ($partialName !== null) {
-            $found = isset($this->context->usedPartial[$partialName]);
+            $found = ($this->context->usedPartial[$partialName] ?? '') !== '';
 
             if (!$found && !str_starts_with($partialName, '@partial-block')) {
                 $cnt = $this->resolvePartial($partialName);
@@ -468,12 +458,10 @@ final class Compiler
                 }
             }
 
-            if (!$found) {
-                // Mark as known so LR::p() can resolve it at runtime.
-                $this->context->usedPartial[$partialName] = '';
-                // Don't add to partialCode — register via LR::in() at runtime so $blockParams
-                // is captured from the enclosing scope when block params are in use.
-            }
+            // Mark as known for runtime resolution; not added to partialCode so $blockParams scope is preserved.
+            $this->context->usedPartial[$partialName] ??= '';
+        } else {
+            $p = $this->compileExpression($name);
         }
 
         $vars = $this->compilePartialParams($statement->params, $statement->hash);
@@ -481,13 +469,12 @@ final class Compiler
         // Capture $blockParams if we're inside a block-param scope so the partial block body can access them.
         $useVars = $this->blockParamsUseVars();
         $bodyClosure = self::templateClosure($body, useVars: $useVars);
-        $fallbackParts = ($partialName !== null && !$found)
-            ? [self::getRuntimeFunc('inFallback', "\$cx, " . self::quote($partialName) . ', ' . $bodyClosure)]
-            : [];
-        $parts = [...$hoistedParts, ...$fallbackParts,
-            self::getRuntimeFunc('in', "\$cx, '@partial-block$pid', " . $bodyClosure),
-            self::getRuntimeFunc('p', "\$cx, $p, $vars, $pid, ''"),
-        ];
+
+        if ($partialName !== null && !$found) {
+            // Register the block body as a fallback partial only if no runtime partial with this name exists yet.
+            $parts[] = "(isset(\$cx->partials[$p]) ? '' : " . self::getRuntimeFunc('in', "\$cx, $p, $bodyClosure") . ')';
+        }
+        $parts[] = self::getRuntimeFunc('p', "\$cx, $p, $vars, '', $bodyClosure");
         return implode('.', $parts);
     }
 
@@ -617,7 +604,7 @@ final class Compiler
 
         // @partial-block as variable: truthy when an active partial block exists
         if ($data && $depth === 0 && count($stringParts) === 1 && $stringParts[0] === 'partial-block') {
-            return "isset(\$cx->partials['@partial-block' . \$cx->partialId]) ? true : null";
+            return "\$cx->partialBlock !== null ? true : null";
         }
 
         // Check block params (depth-0, non-data, non-scoped paths only, not SubExpression-headed)
@@ -788,13 +775,8 @@ final class Compiler
             return;
         }
 
-        $tmpContext = clone $this->context;
-        $tmpContext->inlinePartial = [];
-        $tmpContext->partialBlock = [];
-
         $program = $this->parser->parse($template);
-        $code = (new Compiler($this->parser))->compile($program, $tmpContext);
-        $this->context->merge($tmpContext);
+        $code = (new Compiler($this->parser))->compile($program, $this->context);
 
         $this->context->partialCode[$name] = self::quote($name) . ' => ' . self::templateClosure($code);
     }
@@ -897,13 +879,10 @@ final class Compiler
      */
     private function buildBasePath(bool $data, int $depth): string
     {
-        $base = $data ? '$cx->frame' : '$in';
-        if ($depth > 0) {
-            $base = $data
-                ? $base . str_repeat("['_parent']", $depth)
-                : "\$cx->depths[count(\$cx->depths)-$depth]";
+        if ($data) {
+            return '$cx->frame' . str_repeat("['_parent']", $depth);
         }
-        return $base;
+        return $depth > 0 ? "\$cx->depths[count(\$cx->depths)-$depth]" : '$in';
     }
 
     /**
@@ -963,14 +942,13 @@ final class Compiler
             $preamble = '$sc=count($cx->depths);';
             $body = str_replace('$cx->depths[count($cx->depths)-', '$cx->depths[$sc-', $body);
         }
-        if ($declaresBp) {
-            return "function(\$cx, \$in, array \$blockParams = []) {{$preamble}return $body;}";
-        }
-        if ($inheritsBp) {
-            // Inherits block params from the enclosing closure's $blockParams variable.
-            return "function(\$cx, \$in) use (\$blockParams) {{$preamble}return $body;}";
-        }
-        return "function(\$cx, \$in) {{$preamble}return $body;}";
+        // Inherits block params from the enclosing closure's $blockParams variable when $inheritsBp.
+        $sig = match (true) {
+            $declaresBp => "function(\$cx, \$in, array \$blockParams = [])",
+            $inheritsBp => "function(\$cx, \$in) use (\$blockParams)",
+            default => "function(\$cx, \$in)",
+        };
+        return "$sig {{$preamble}return $body;}";
     }
 
     private static function quote(string $string): string

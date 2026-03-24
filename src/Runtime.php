@@ -166,8 +166,8 @@ final class Runtime
                 partials: $parentCx->partials,
                 depths: $parentCx->depths,
                 data: $root,
-                partialId: $parentCx->partialId,
                 frame: $parentCx->frame,
+                partialBlock: $parentCx->partialBlock,
             );
         }
 
@@ -366,17 +366,28 @@ final class Runtime
      * @param array<string, mixed> $hash named hash overrides merged into the context
      * @param string $indent whitespace to prepend to each line of the partial's output
      */
-    public static function p(RuntimeContext $cx, string $name, mixed $context, array $hash, int $pid, string $indent): string
+    public static function p(RuntimeContext $cx, string $name, mixed $context, array $hash, string $indent, ?\Closure $partialBlock = null): string
     {
-        $pp = ($name === '@partial-block') ? $name . ($pid > 0 ? $pid : $cx->partialId) : $name;
-
-        $fn = $cx->partials[$pp] ?? null;
+        $fn = $name === '@partial-block' ? $cx->partialBlock : ($cx->partials[$name] ?? null);
         if ($fn === null) {
             throw new \Exception("The partial $name could not be found");
         }
 
-        $savedPartialId = $cx->partialId;
-        $cx->partialId = ($name === '@partial-block') ? ($pid > 0 ? $pid : ($cx->partialId > 0 ? $cx->partialId - 1 : 0)) : $pid;
+        // Install a wrapper as the active @partial-block so the partial can invoke it via {{> @partial-block}}.
+        // The wrapper temporarily restores the previously active block before calling $partialBlock,
+        // allowing nested partial blocks to correctly resolve their own @partial-block.
+        if ($partialBlock !== null) {
+            $currentBlock = $cx->partialBlock;
+            $cx->partialBlock = static function (mixed $blockContext) use ($partialBlock, $currentBlock): string {
+                $callingCx = self::$partialContext;
+                assert($callingCx !== null);
+                $saved = $callingCx->partialBlock;
+                $callingCx->partialBlock = $currentBlock;
+                $result = $partialBlock($blockContext);
+                $callingCx->partialBlock = $saved;
+                return $result;
+            };
+        }
 
         $context = $hash ? static::merge($context, $hash) : $context;
         $prev = self::$partialContext;
@@ -385,8 +396,10 @@ final class Runtime
             $result = $fn($context);
         } finally {
             self::$partialContext = $prev;
+            if ($partialBlock !== null) {
+                $cx->partialBlock = $currentBlock;
+            }
         }
-        $cx->partialId = $savedPartialId;
 
         if ($indent !== '') {
             $lines = explode("\n", $result);
@@ -405,43 +418,14 @@ final class Runtime
     }
 
     /**
-     * Like in() but only registers the partial if it is not already present in the context.
-     * Used for {{#> partial}}fallback{{/partial}} blocks when the partial was not found at compile time.
-     *
-     * @param string $name partial name
-     * @param \Closure $partial the compiled fallback partial
-     */
-    public static function inFallback(RuntimeContext $cx, string $name, \Closure $partial): string
-    {
-        $cx->partials[$name] ??= $partial;
-        return '';
-    }
-
-    /**
-     * For {{#* inlinepartial}} .
+     * For {{#* inline "name"}} and {{#> partial}}fallback{{/partial}} blocks.
      *
      * @param string $name partial name
      * @param \Closure $partial the compiled partial
      */
     public static function in(RuntimeContext $cx, string $name, \Closure $partial): string
     {
-        if (str_starts_with($name, '@partial-block')) {
-            // Capture the outer partialId at registration time so that when this
-            // block closure runs, any {{>@partial-block}} inside it resolves to
-            // the correct outer partial block rather than following the pid-decrement chain.
-            $outerPartialId = $cx->partialId;
-            $cx->partials[$name] = function (mixed $context = null, array $options = []) use ($partial, $outerPartialId): string {
-                $callingCx = self::$partialContext;
-                assert($callingCx !== null);
-                $savedId = $callingCx->partialId;
-                $callingCx->partialId = $outerPartialId;
-                $result = $partial($context, $options);
-                $callingCx->partialId = $savedId;
-                return $result;
-            };
-        } else {
-            $cx->partials[$name] = $partial;
-        }
+        $cx->partials[$name] = $partial;
         return '';
     }
 

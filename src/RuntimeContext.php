@@ -19,7 +19,7 @@ final class RuntimeContext
         public array $partials = [],
         public array $depths = [],
         public array $data = [],
-        public int $partialId = 0,
         public array $frame = [],
+        public ?\Closure $partialBlock = null,
     ) {}
 }

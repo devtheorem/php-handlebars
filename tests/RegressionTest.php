@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * @phpstan-type RegIssue array{
  *     desc?: string, template: string, data?: mixed, options?: Options,
- *     helpers?: array<string, \Closure>, expected: string,
+ *     helpers?: array<string, \Closure>, runtimePartials?: array<string, string>, expected: string,
  * }
  */
 class RegressionTest extends TestCase
@@ -42,47 +42,13 @@ class RegressionTest extends TestCase
         ini_restore('error_log');
     }
 
-    public function testRuntimePartials(): void
-    {
-        // testcase from https://github.com/zordius/lightncandy/issues/292
-        $templateString = '{{#>outer}} {{#>compiledBlock}} inner compiledBlock {{/compiledBlock}} {{>normalTemplate}} {{/outer}}';
-
-        $template = Handlebars::compile($templateString, new Options(
-            partials: [
-                'outer' => 'outer+{{#>nested}}~{{>@partial-block}}~{{/nested}}+outer-end',
-                'nested' => 'nested={{>@partial-block}}=nested-end',
-            ],
-        ));
-
-        $result = $template(null, [
-            'partials' => [
-                'compiledBlock' => Handlebars::compile('compiledBlock !!! {{>@partial-block}} !!! compiledBlock'),
-                'normalTemplate' => Handlebars::compile('normalTemplate'),
-            ],
-        ]);
-
-        $this->assertSame('outer+nested=~ compiledBlock !!!  inner compiledBlock  !!! compiledBlock normalTemplate ~=nested-end+outer-end', $result);
-
-        // testcase from https://github.com/zordius/lightncandy/issues/341
-        $templateString = '{{#> MyPartial child}}This <b>text</b> was sent from the template to the partial.{{/MyPartial}}';
-        $partialTemplateString = '{{name}} says: “{{> @partial-block }}”';
-        $template = Handlebars::compile($templateString);
-        $context = ['child' => ['name' => 'Jason']];
-
-        $result = $template($context, [
-            'partials' => [
-                'MyPartial' => Handlebars::compile($partialTemplateString),
-            ],
-        ]);
-
-        $this->assertSame('Jason says: “This <b>text</b> was sent from the template to the partial.”', $result);
-    }
-
     /**
      * @param array<string, \Closure> $helpers
+     * @param array<string, string> $runtimePartials
      */
     #[DataProvider("helperProvider")]
     #[DataProvider("partialProvider")]
+    #[DataProvider("nestedPartialProvider")]
     #[DataProvider("builtInProvider")]
     #[DataProvider("whitespaceProvider")]
     #[DataProvider("escapeProvider")]
@@ -97,13 +63,21 @@ class RegressionTest extends TestCase
     #[DataProvider("missingDataProvider")]
     #[DataProvider("syntaxProvider")]
     #[DataProvider("subexpressionPathProvider")]
-    public function testIssues(string $template, string $expected, string $desc = '', mixed $data = null, ?Options $options = null, array $helpers = []): void
-    {
+    public function testIssues(
+        string $template,
+        string $expected,
+        string $desc = '',
+        mixed $data = null,
+        ?Options $options = null,
+        array $helpers = [],
+        array $runtimePartials = [],
+    ): void {
         $templateSpec = Handlebars::precompile($template, $options ?? new Options());
 
         try {
             $template = Handlebars::template($templateSpec);
-            $result = $template($data, ['helpers' => $helpers]);
+            $compiledPartials = array_map(fn($p) => Handlebars::compile($p), $runtimePartials);
+            $result = $template($data, ['helpers' => $helpers, 'partials' => $compiledPartials]);
         } catch (\Throwable $e) {
             $this->fail("$desc\nError: {$e->getMessage()}\nPHP code:\n$templateSpec");
         }
@@ -1131,32 +1105,6 @@ class RegressionTest extends TestCase
             ],
 
             [
-                'desc' => 'LNC#235 - nested partial blocks',
-                'template' => '{{#> "myPartial"}}{{#> myOtherPartial}}{{ @root.foo}}{{/myOtherPartial}}{{/"myPartial"}}',
-                'data' => ['foo' => 'hello!'],
-                'options' => new Options(
-                    partials: [
-                        'myPartial' => '<div>outer {{> @partial-block}}</div>',
-                        'myOtherPartial' => '<div>inner {{> @partial-block}}</div>',
-                    ],
-                ),
-                'expected' => '<div>outer <div>inner hello!</div></div>',
-            ],
-
-            [
-                'desc' => 'LNC#236 - more nested partial blocks',
-                'template' => 'A{{#> foo}}B{{#> bar}}C{{>moo}}D{{/bar}}E{{/foo}}F',
-                'options' => new Options(
-                    partials: [
-                        'foo' => 'FOO>{{> @partial-block}}<FOO',
-                        'bar' => 'bar>{{> @partial-block}}<bar',
-                        'moo' => 'MOO!',
-                    ],
-                ),
-                'expected' => 'AFOO>Bbar>CMOO!D<barE<FOOF',
-            ],
-
-            [
                 'desc' => 'LNC#241 - each block inside inline block context',
                 'template' => '{{#>foo}}{{#*inline "bar"}}GOOD!{{#each .}}>{{.}}{{/each}}{{/inline}}{{/foo}}',
                 'data' => ['1', '3', '5'],
@@ -1167,33 +1115,6 @@ class RegressionTest extends TestCase
                     ],
                 ),
                 'expected' => 'AGOOD!>1>3>5B',
-            ],
-
-            [
-                'desc' => 'LNC#244 - nested partial blocks',
-                'template' => '{{#>outer}}content{{/outer}}',
-                'data' => ['test' => 'OK'],
-                'options' => new Options(
-                    partials: [
-                        'outer' => 'outer+{{#>nested}}~{{>@partial-block}}~{{/nested}}+outer-end',
-                        'nested' => 'nested={{>@partial-block}}=nested-end',
-                    ],
-                ),
-                'expected' => 'outer+nested=~content~=nested-end+outer-end',
-            ],
-
-            [
-                'desc' => 'LNC#292 - nested partials should render correctly',
-                'template' => '{ {{#>outer}} {{#>innerBlock}} Hello {{/innerBlock}} {{>simple}} {{/outer}} }',
-                'options' => new Options(
-                    partials: [
-                        'outer' => '( {{#>nested}} « {{>@partial-block}} » {{/nested}} )',
-                        'nested' => '[ {{>@partial-block}} ]',
-                        'innerBlock' => '< {{>@partial-block}} >',
-                        'simple' => 'World!',
-                    ],
-                ),
-                'expected' => '{ ( [  «  <  Hello  > World!  »  ] ) }',
             ],
 
             [
@@ -1270,6 +1191,108 @@ class RegressionTest extends TestCase
             [
                 'template' => "{{#> testPartial}}\n outer!\n  {{#> innerPartial}}\n   inner!\n   inner!\n  {{/innerPartial}}\n outer!\n {{/testPartial}}",
                 'expected' => " outer!\n   inner!\n   inner!\n outer!\n",
+            ],
+
+            [
+                'desc' => 'Prior partial call should not suppress later block syntax failover content',
+                'template' => '{{#if condition}}{{> foo}}{{/if}} {{#> foo}}Failover{{/foo}}',
+                'data' => ['condition' => false],
+                'expected' => ' Failover',
+            ],
+        ];
+    }
+
+    /** @return list<RegIssue> */
+    public static function nestedPartialProvider(): array
+    {
+        return [
+            [
+                'desc' => 'LNC#235 - nested partial blocks',
+                'template' => '{{#> "myPartial"}}{{#> myOtherPartial}}{{ @root.foo}}{{/myOtherPartial}}{{/"myPartial"}}',
+                'data' => ['foo' => 'hello!'],
+                'options' => new Options(
+                    partials: [
+                        'myPartial' => '<div>outer {{> @partial-block}}</div>',
+                        'myOtherPartial' => '<div>inner {{> @partial-block}}</div>',
+                    ],
+                ),
+                'expected' => '<div>outer <div>inner hello!</div></div>',
+            ],
+
+            [
+                'desc' => 'LNC#236 - more nested partial blocks',
+                'template' => 'A{{#> foo}}B{{#> bar}}C{{>moo}}D{{/bar}}E{{/foo}}F',
+                'options' => new Options(
+                    partials: [
+                        'foo' => 'FOO>{{> @partial-block}}<FOO',
+                        'bar' => 'bar>{{> @partial-block}}<bar',
+                        'moo' => 'MOO!',
+                    ],
+                ),
+                'expected' => 'AFOO>Bbar>CMOO!D<barE<FOOF',
+            ],
+
+            [
+                'desc' => 'LNC#244 - nested partial blocks',
+                'template' => '{{#>outer}}content{{/outer}}',
+                'data' => ['test' => 'OK'],
+                'options' => new Options(
+                    partials: [
+                        'outer' => 'outer+{{#>nested}}~{{>@partial-block}}~{{/nested}}+outer-end',
+                        'nested' => 'nested={{>@partial-block}}=nested-end',
+                    ],
+                ),
+                'expected' => 'outer+nested=~content~=nested-end+outer-end',
+            ],
+
+            [
+                'desc' => 'LNC#292 - nested compile-time and runtime partials should render correctly',
+                'template' => '{{#>outer}} {{#>compiledBlock}} inner compiledBlock {{/compiledBlock}} {{>normalTemplate}} {{/outer}}',
+                'options' => new Options(
+                    partials: [
+                        'outer' => 'outer+{{#>nested}}~{{>@partial-block}}~{{/nested}}+outer-end',
+                        'nested' => 'nested={{>@partial-block}}=nested-end',
+                    ],
+                ),
+                'runtimePartials' => [
+                    'compiledBlock' => 'compiledBlock !!! {{>@partial-block}} !!! compiledBlock',
+                    'normalTemplate' => 'normalTemplate',
+                ],
+                'expected' => 'outer+nested=~ compiledBlock !!!  inner compiledBlock  !!! compiledBlock normalTemplate ~=nested-end+outer-end',
+            ],
+            [
+                'desc' => 'LNC#292 - nested compile-time partials should render correctly',
+                'template' => '{ {{#>outer}} {{#>innerBlock}} Hello {{/innerBlock}} {{>simple}} {{/outer}} }',
+                'options' => new Options(
+                    partials: [
+                        'outer' => '( {{#>nested}} « {{>@partial-block}} » {{/nested}} )',
+                        'nested' => '[ {{>@partial-block}} ]',
+                        'innerBlock' => '< {{>@partial-block}} >',
+                        'simple' => 'World!',
+                    ],
+                ),
+                'expected' => '{ ( [  «  <  Hello  > World!  »  ] ) }',
+            ],
+            [
+                'desc' => 'LNC#292 - nested runtime partials should render correctly',
+                'template' => '{ {{#>outer}} {{#>innerBlock}} Hello {{/innerBlock}} {{>simple}} {{/outer}} }',
+                'runtimePartials' => [
+                    'outer' => '( {{#>nested}} « {{>@partial-block}} » {{/nested}} )',
+                    'nested' => '[ {{>@partial-block}} ]',
+                    'innerBlock' => '< {{>@partial-block}} >',
+                    'simple' => 'World!',
+                ],
+                'expected' => '{ ( [  «  <  Hello  > World!  »  ] ) }',
+            ],
+
+            [
+                'desc' => 'LNC#341 - render-time partials can access @partial-block',
+                'template' => '{{#> MyPartial child}}This <b>text</b> was sent from the template to the partial.{{/MyPartial}}',
+                'runtimePartials' => [
+                    'MyPartial' => '{{name}} says: “{{> @partial-block }}”',
+                ],
+                'data' => ['child' => ['name' => 'Jason']],
+                'expected' => 'Jason says: “This <b>text</b> was sent from the template to the partial.”',
             ],
         ];
     }
