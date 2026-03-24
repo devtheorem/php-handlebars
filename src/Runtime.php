@@ -132,6 +132,20 @@ final class Runtime
     }
 
     /**
+     * assumeObjects / strict-helper-arg key lookup: throw if $base is null (mirroring JS
+     * TypeError for null/undefined property access); return null silently for a missing key on a
+     * valid array (mirroring JS returning undefined for a missing object property); return null for
+     * non-array non-null bases (mirroring JS returning undefined for property access on primitives).
+     */
+    public static function nullCheck(mixed $base, string $key): mixed
+    {
+        if ($base === null) {
+            throw new \ErrorException("Cannot access property \"$key\" on null");
+        }
+        return is_array($base) ? ($base[$key] ?? null) : null;
+    }
+
+    /**
      * Build a RuntimeContext from raw render options and compile-time partial closures.
      *
      * @param RenderOptions $options
@@ -176,9 +190,10 @@ final class Runtime
     }
 
     /**
-     * Context variable lookup for knownHelpersOnly mode.
+     * Context variable lookup without helper dispatch.
      * Looks up $name in $_this; if the value is a Closure, invokes it with $_this as context.
-     * Skips helper dispatch (the compiler has already ruled out known helpers).
+     * Used when helper dispatch is unnecessary: knownHelpersOnly mode (the compiler has already
+     * ruled out known helpers), and inlined if/unless conditions on single-segment paths.
      *
      * @param mixed $_this current rendering context
      */

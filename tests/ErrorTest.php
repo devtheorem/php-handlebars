@@ -70,6 +70,11 @@ class ErrorTest extends TestCase
                 'expected' => '"foo.bar" not defined',
             ],
             [
+                'template' => '{{#if foo.bar}}bad{{else}}OK{{/if}}',
+                'options' => new Options(strict: true),
+                'expected' => 'Cannot access property "bar" on null',
+            ],
+            [
                 'template' => '{{foo}}',
                 'options' => new Options(strict: true),
                 'expected' => '"foo" not defined',

@@ -408,7 +408,7 @@ final class Compiler
             $p = $this->SubExpression($name);
             $this->context->usedDynPartial++;
         } elseif ($name instanceof PathExpression || $name instanceof StringLiteral || $name instanceof NumberLiteral) {
-            $partialName = $name instanceof PathExpression ? $name->original : $this->getLiteralKeyName($name);
+            $partialName = $this->resolvePartialName($name);
             $p = self::quote($partialName);
             $this->resolveAndCompilePartial($partialName);
         } else {
@@ -447,22 +447,23 @@ final class Compiler
         $body = $this->compileProgram($statement->program);
 
         if ($name instanceof PathExpression || $name instanceof StringLiteral || $name instanceof NumberLiteral) {
-            $partialName = $name instanceof PathExpression ? $name->original : $this->getLiteralKeyName($name);
+            $partialName = $this->resolvePartialName($name);
             $p = self::quote($partialName);
         } else {
             $p = $this->compileExpression($name);
             $partialName = null;
         }
 
+        $found = false;
+
         if ($partialName !== null) {
             $found = isset($this->context->usedPartial[$partialName]);
 
             if (!$found && !str_starts_with($partialName, '@partial-block')) {
-                $resolveName = $partialName;
-                $cnt = $this->resolvePartial($resolveName);
+                $cnt = $this->resolvePartial($partialName);
                 if ($cnt !== null) {
-                    $this->context->usedPartial[$resolveName] = $cnt;
-                    $this->compilePartialTemplate($resolveName, $cnt);
+                    $this->context->usedPartial[$partialName] = $cnt;
+                    $this->compilePartialTemplate($partialName, $cnt);
                     $found = true;
                 }
             }
@@ -479,11 +480,12 @@ final class Compiler
 
         // Capture $blockParams if we're inside a block-param scope so the partial block body can access them.
         $useVars = $this->blockParamsUseVars();
+        $bodyClosure = self::templateClosure($body, useVars: $useVars);
         $fallbackParts = ($partialName !== null && !$found)
-            ? [self::getRuntimeFunc('inFallback', "\$cx, " . self::quote($partialName) . ', ' . self::templateClosure($body, useVars: $useVars))]
+            ? [self::getRuntimeFunc('inFallback', "\$cx, " . self::quote($partialName) . ', ' . $bodyClosure)]
             : [];
         $parts = [...$hoistedParts, ...$fallbackParts,
-            self::getRuntimeFunc('in', "\$cx, '@partial-block$pid', " . self::templateClosure($body, useVars: $useVars)),
+            self::getRuntimeFunc('in', "\$cx, '@partial-block$pid', " . $bodyClosure),
             self::getRuntimeFunc('p', "\$cx, $p, $vars, $pid, ''"),
         ];
         return implode('.', $parts);
@@ -639,32 +641,22 @@ final class Compiler
             if (count($checks) > 1) {
                 $cond = "($cond)";
             }
-            $lenStart = "($cond ? count($base$p) : ";
-            $lenEnd = ')';
+            $lenStart = "$cond ? count($base$p) : ";
 
-            return "$base$n ?? $lenStart$miss$lenEnd";
+            return "$base$n ?? ($lenStart$miss)";
         }
 
-        if ($this->context->options->assumeObjects) {
-            $missCode = self::getRuntimeFunc('miss', self::quote($expression->original));
-            $conditions = ["isset($base)"];
-            $intermediateAccess = '';
-            foreach (array_slice($stringParts, 0, -1) as $part) {
-                $intermediateAccess .= '[' . self::quote($part) . ']';
-                $conditions[] = "isset($base$intermediateAccess)";
-            }
-            $allConds = implode(' && ', $conditions);
-            return "($allConds ? ($base$n ?? null) : $missCode)";
+        // assumeObjects and strict mode for helper arguments both use nullCheck chains.
+        // This mirrors HBS.js: both paths use bare nameLookup (no container.strict wrapping), so
+        // only a null intermediate throws (JS TypeError), while a missing key on a valid array
+        // returns null silently (JS undefined). nullCheck encodes those semantics and includes
+        // the key name in the exception message.
+        if ($this->context->options->assumeObjects || ($this->context->options->strict && $this->compilingHelperArgs)) {
+            return self::buildCallChain('nullCheck', $base, $stringParts);
         }
 
-        if ($this->context->options->strict && !$this->compilingHelperArgs) {
-            $escapedOriginal = self::quote($expression->original);
-            $expr = $base;
-            foreach ($stringParts as $part) {
-                $escapedKey = self::quote($part);
-                $expr = self::getRuntimeFunc('strictLookup', "$expr, $escapedKey, $escapedOriginal");
-            }
-            return $expr;
+        if ($this->context->options->strict) {
+            return self::buildCallChain('strictLookup', $base, $stringParts, self::quote($expression->original));
         }
 
         return "$base$n ?? $miss";
@@ -762,11 +754,8 @@ final class Compiler
     /**
      * Returns the resolved partial content, or null if it doesn't exist.
      */
-    private function resolvePartial(string &$name): ?string
+    private function resolvePartial(string $name): ?string
     {
-        if ($name === '@partial-block') {
-            $name = "@partial-block{$this->context->usedPBlock}";
-        }
         if (isset($this->context->partials[$name])) {
             return $this->context->partials[$name];
         }
@@ -898,6 +887,30 @@ final class Compiler
                 : "\$cx->depths[count(\$cx->depths)-$depth]";
         }
         return $base;
+    }
+
+    /**
+     * Resolve the name of a non-SubExpression partial reference.
+     */
+    private function resolvePartialName(PathExpression|StringLiteral|NumberLiteral $name): string
+    {
+        return $name instanceof PathExpression ? $name->original : $this->getLiteralKeyName($name);
+    }
+
+    /**
+     * Build a left-associative chain of runtime function calls over the given parts.
+     * e.g. buildCallChain('f', '$in', ['a','b']) → "LR::f(LR::f($in, 'a'), 'b')"
+     * An optional $extraArg is appended to every call's argument list.
+     * @param string[] $parts
+     */
+    private static function buildCallChain(string $fn, string $base, array $parts, string $extraArg = ''): string
+    {
+        $extra = $extraArg !== '' ? ", $extraArg" : '';
+        $expr = $base;
+        foreach ($parts as $part) {
+            $expr = self::getRuntimeFunc($fn, "$expr, " . self::quote($part) . $extra);
+        }
+        return $expr;
     }
 
     /**
