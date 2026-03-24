@@ -1845,6 +1845,21 @@ class RegressionTest extends TestCase
                     _tpl,
                 'expected' => "  Finally, do this last thing if all else fails\n",
             ],
+
+            [
+                'desc' => '#15 - if should work with multi-segment path expression',
+                'template' => '{{#if foo.bar}}bad{{else}}OK{{/if}}',
+                'data' => ['foo' => 'foo'],
+                'expected' => 'OK',
+            ],
+
+            [
+                'desc' => 'strict mode should not throw if the final property of a helper argument is missing',
+                'template' => '{{#if foo.bar}}bad{{else}}OK{{/if}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => []],
+                'expected' => 'OK',
+            ],
         ];
     }
 

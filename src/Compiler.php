@@ -326,9 +326,10 @@ final class Compiler
 
     /**
      * Compile the condition expression for an inlined if/unless ternary.
-     * For simple single-segment paths, routes through cv() which already resolves closures,
-     * so ifvar() suffices. For all other expressions, closures at nested paths are not
-     * invoked (not a real-world or spec concern).
+     * Single-segment plain context paths (e.g. {{#if foo}}) use cv() so that closures are
+     * invoked before being tested. All other expressions (multi-segment paths, data variables,
+     * block params, sub-expressions) use compileExpression() as a helper argument.
+     * Closures at nested path segments are not invoked.
      * @param bool $negate true for `unless` or inverted `{{^if}}`
      */
     private function compileConditionalExpr(Expression $condExpr, bool $negate): string
@@ -338,6 +339,7 @@ final class Compiler
             && !$condExpr->data
             && $condExpr->depth === 0
             && is_string($part)
+            && count($condExpr->parts) === 1
             && !self::scopedId($condExpr)
             && $this->lookupBlockParam($part) === null
         ) {
