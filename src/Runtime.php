@@ -181,12 +181,13 @@ final class Runtime
 
         if ($parentCx !== null) {
             // Partial context: reuse the parent's already-merged helpers and partials directly.
-            // PHP copy-on-write ensures partials is only copied if in() registers a new inline partial.
+            // PHP copy-on-write ensures inlinePartials is only copied if in() registers a new inline partial.
             // Inherit the parent's current frame so @index, @key, etc. remain accessible inside partials.
             // templateClosure will update frame['root'] to reference this partial's own data['root'].
             return new RuntimeContext(
                 helpers: $parentCx->helpers,
                 partials: $parentCx->partials,
+                inlinePartials: $parentCx->inlinePartials,
                 depths: $parentCx->depths,
                 data: $root,
                 frame: $parentCx->frame,
@@ -391,7 +392,9 @@ final class Runtime
      */
     public static function p(RuntimeContext $cx, string $name, mixed $context, array $hash, string $indent, ?\Closure $partialBlock = null): string
     {
-        $fn = $name === '@partial-block' ? $cx->partialBlock : ($cx->partials[$name] ?? null);
+        // inlinePartials (block-scoped {{#* inline}}) take precedence over partials (persistent),
+        // mirroring Handlebars.js which checks options.partials before env.partials.
+        $fn = $name === '@partial-block' ? $cx->partialBlock : ($cx->inlinePartials[$name] ?? $cx->partials[$name] ?? null);
         if ($fn === null) {
             throw new \Exception("The partial $name could not be found");
         }
@@ -448,7 +451,7 @@ final class Runtime
      */
     public static function in(RuntimeContext $cx, string $name, \Closure $partial): string
     {
-        $cx->partials[$name] = $partial;
+        $cx->inlinePartials[$name] = $partial;
         return '';
     }
 
@@ -502,6 +505,7 @@ final class Runtime
             $positional[] = new HelperOptions(
                 scope: $_this,
                 data: $cx->frame,
+                cx: $cx,
                 name: $name,
                 hash: $hash,
             );
@@ -525,10 +529,10 @@ final class Runtime
         $positional[] = new HelperOptions(
             scope: $_this,
             data: $cx->frame,
+            cx: $cx,
             name: $name,
             hash: $hash,
             blockParams: $blockParamCount,
-            cx: $cx,
             cb: $cb,
             inv: $else,
             outerBlockParams: $outerBlockParams,

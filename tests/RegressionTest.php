@@ -38,7 +38,7 @@ class RegressionTest extends TestCase
             return $m[1] ?? $l;
         }, $lines);
 
-        $this->assertEquals(['array (', "  0 => 'OK!',", ')'], $contents);
+        $this->assertSame(['array (', "  0 => 'OK!',", ')'], $contents);
         ini_restore('error_log');
     }
 
@@ -81,7 +81,7 @@ class RegressionTest extends TestCase
         } catch (\Throwable $e) {
             $this->fail("$desc\nError: {$e->getMessage()}\nPHP code:\n$templateSpec");
         }
-        $this->assertEquals($expected, $result, "$desc\nPHP code:\n$templateSpec");
+        $this->assertSame($expected, $result, "$desc\nPHP code:\n$templateSpec");
     }
 
     /** @return list<RegIssue> */
@@ -1105,6 +1105,24 @@ class RegressionTest extends TestCase
             ],
 
             [
+                'desc' => 'loadPartial: hasPartial returns false before registration',
+                'template' => '{{check}} {{> (loadPartial partialName)}} {{check}}',
+                'data' => ['partialName' => 'greet', 'name' => 'World'],
+                'helpers' => [
+                    'check' => function (HelperOptions $options): string {
+                        return $options->hasPartial('greet') ? 'found' : 'missing';
+                    },
+                    'loadPartial' => function (string $name, HelperOptions $options): string {
+                        if (!$options->hasPartial($name)) {
+                            $options->registerPartial($name, Handlebars::compile('Hello {{name}}'));
+                        }
+                        return $name;
+                    },
+                ],
+                'expected' => 'missing Hello World found',
+            ],
+
+            [
                 'desc' => 'LNC#241 - each block inside inline block context',
                 'template' => '{{#>foo}}{{#*inline "bar"}}GOOD!{{#each .}}>{{.}}{{/each}}{{/inline}}{{/foo}}',
                 'data' => ['1', '3', '5'],
@@ -1951,6 +1969,68 @@ class RegressionTest extends TestCase
                 'expected' => '0: a, 1: blast!',
             ],
             [
+                'desc' => 'knownHelpersOnly: blockHelperMissing is called for inverted sections',
+                'template' => '{{^items}}EMPTY{{/items}}',
+                'options' => new Options(knownHelpersOnly: true),
+                'data' => ['items' => false],
+                'helpers' => [
+                    'blockHelperMissing' => fn($context, HelperOptions $options) => 'BHM:' . $options->inverse(),
+                ],
+                'expected' => 'BHM:EMPTY',
+            ],
+            [
+                'desc' => 'knownHelpersOnly: blockHelperMissing is called for forward sections',
+                'template' => '{{#items}}content{{/items}}',
+                'options' => new Options(knownHelpersOnly: true),
+                'data' => ['items' => true],
+                'helpers' => [
+                    'blockHelperMissing' => fn($context, HelperOptions $options) => 'BHM:' . $options->fn(),
+                ],
+                'expected' => 'BHM:content',
+            ],
+            [
+                'desc' => 'complex path with argument treats closure as helper and passes HelperOptions',
+                'template' => '{{#obj.fn "x"}}BODY{{/obj.fn}}',
+                'data' => [
+                    'obj' => [
+                        'fn' => fn($context, HelperOptions $options) => $context . ':' . $options->fn(),
+                    ],
+                ],
+                'expected' => 'x:BODY',
+            ],
+            [
+                'desc' => 'forward block with no else: isset($options->inverse) is true and inverse() returns empty string',
+                'template' => '{{#checkInv}}BODY{{/checkInv}}',
+                'helpers' => [
+                    'checkInv' => function (HelperOptions $options): string {
+                        return (isset($options->inverse) ? 'HAS_INV' : 'NO_INV') . ":{$options->fn()}:{$options->inverse()}";
+                    },
+                ],
+                'expected' => 'HAS_INV:BODY:',
+            ],
+            [
+                'desc' => 'known-helper inverted block: isset($options->fn) is true and fn() returns empty string',
+                'template' => '{{^checkFn val}}BODY{{/checkFn}}',
+                'options' => new Options(knownHelpers: ['checkFn' => true]),
+                'data' => ['val' => 'x'],
+                'helpers' => [
+                    'checkFn' => function (mixed $context, HelperOptions $options): string {
+                        return (isset($options->fn) ? 'HAS_FN' : 'NO_FN') . ":{$options->fn()}:{$options->inverse()}";
+                    },
+                ],
+                'expected' => 'HAS_FN::BODY',
+            ],
+            [
+                'desc' => 'unknown simple-identifier inverted block: isset($options->fn) is true and fn() returns empty string',
+                'template' => '{{^checkFn}}BODY{{/checkFn}}',
+                'helpers' => [
+                    'checkFn' => function (HelperOptions $options): string {
+                        return (isset($options->fn) ? 'HAS_FN' : 'NO_FN') . ":{$options->fn()}:{$options->inverse()}";
+                    },
+                ],
+                'expected' => 'HAS_FN::BODY',
+            ],
+            [
                 'desc' => 'inline partials registered inside a block section do not leak out after the block ends',
                 'template' => '{{#* inline "p"}}BEFORE{{/inline}}{{#section}}{{#* inline "p"}}INSIDE{{/inline}}{{> p}}{{/section}}{{> p}}',
                 'options' => new Options(knownHelpersOnly: true),
@@ -2199,5 +2279,43 @@ class RegressionTest extends TestCase
                 'expected' => 'WORLD',
             ],
         ];
+    }
+
+    public function testLoadPartialPersistsAcrossFnCalls(): void
+    {
+        // registerPartial() writes to the persistent $cx->partials array, which fn() does not
+        // reset, so each template is compiled and registered only once even when a block helper
+        // calls fn() per iteration.
+        $compileCounts = ['a' => 0, 'b' => 0];
+
+        $helpers = [
+            'repeat' => function (array $items, HelperOptions $options): string {
+                $ret = '';
+                foreach ($items as $item) {
+                    $ret .= $options->fn($item);
+                }
+                return $ret;
+            },
+            'loadPartial' => function (string $name, HelperOptions $options) use (&$compileCounts): string {
+                if (!$options->hasPartial($name)) {
+                    $templates = ['a' => '[A:{{val}}]', 'b' => '[B:{{val}}]'];
+                    $options->registerPartial($name, Handlebars::compile($templates[$name]));
+                    $compileCounts[$name]++;
+                }
+                return $name;
+            },
+        ];
+
+        $template = Handlebars::compile('{{#repeat items}}{{> (loadPartial type)}}{{/repeat}}');
+        $items = [
+            ['type' => 'a', 'val' => 1],
+            ['type' => 'b', 'val' => 2],
+            ['type' => 'a', 'val' => 3],
+        ];
+        $result = $template(['items' => $items], ['helpers' => $helpers]);
+
+        $this->assertSame('[A:1][B:2][A:3]', $result);
+        $this->assertSame(1, $compileCounts['a']);
+        $this->assertSame(1, $compileCounts['b']);
     }
 }

@@ -11,6 +11,9 @@ enum Scope
     case Use;
 }
 
+/**
+ * @phpstan-import-type Template from Handlebars
+ */
 class HelperOptions
 {
     /**
@@ -21,57 +24,76 @@ class HelperOptions
     public function __construct(
         public mixed &$scope,
         public array &$data,
+        private readonly RuntimeContext $cx,
         public readonly string $name = '',
         public readonly array $hash = [],
         public readonly int $blockParams = 0,
-        private readonly ?RuntimeContext $cx = null,
         private readonly ?Closure $cb = null,
         private readonly ?Closure $inv = null,
         private readonly array $outerBlockParams = [],
     ) {}
 
     /**
-     * Allows isset($options->fn) and isset($options->inverse) to check whether the block exists.
+     * Returns true if a partial with the given name is registered.
+     */
+    public function hasPartial(string $name): bool
+    {
+        return isset($this->cx->inlinePartials[$name]) || isset($this->cx->partials[$name]);
+    }
+
+    /**
+     * Registers a compiled partial closure under the given name for the remainder of the render.
+     * Typically used alongside hasPartial() to implement lazy partial loading.
+     * @param Template $partial
+     */
+    public function registerPartial(string $name, \Closure $partial): void
+    {
+        $this->cx->partials[$name] = $partial;
+    }
+
+    /**
+     * Supports isset($options->fn) and isset($options->inverse), both of which return true for
+     * any block helper call and false for inline helper calls (matching Handlebars.js behavior).
      */
     public function __isset(string $name): bool
     {
-        if ($name === 'fn') {
-            return $this->cb !== null;
-        } elseif ($name === 'inverse') {
-            return $this->inv !== null;
+        if ($name === 'fn' || $name === 'inverse') {
+            return $this->cb !== null || $this->inv !== null;
         }
         return false;
     }
 
     public function fn(mixed $context = Scope::Use, mixed $data = null): string
     {
-        if ($this->cx === null) {
-            throw new \Exception('fn() is not supported for inline helpers');
-        } elseif ($this->cb === null) {
+        if ($this->cb === null) {
+            if ($this->inv === null) {
+                throw new \Exception('fn() is not supported for inline helpers');
+            }
             return '';
         }
         $cx = $this->cx;
         $scope = $this->scope;
 
-        // Save partials so that any {{#* inline}} partials registered inside the block body
+        // Save inlinePartials so that any {{#* inline}} partials registered inside the block body
         // don't leak out after fn() returns. The spec requires inline partials to be
         // block-scoped. PHP copy-on-write makes this assignment cheap when no inline partials are registered.
-        $savedPartials = $cx->partials;
+        $savedInlinePartials = $cx->inlinePartials;
 
         // Skip depths push for explicit same-context pass (equivalent to HBS.js options.fn(this))
         $skipDepths = $context === $scope;
         $resolvedContext = $skipDepths ? $scope : ($context === Scope::Use ? $scope : $context);
         $ret = $this->callBlock($this->cb, $resolvedContext, !$skipDepths, $data);
 
-        $cx->partials = $savedPartials;
+        $cx->inlinePartials = $savedInlinePartials;
         return $ret;
     }
 
     public function inverse(mixed $context = null, mixed $data = null): string
     {
-        if ($this->cx === null) {
-            throw new \Exception('inverse() is not supported for inline helpers');
-        } elseif ($this->inv === null) {
+        if ($this->inv === null) {
+            if ($this->cb === null) {
+                throw new \Exception('inverse() is not supported for inline helpers');
+            }
             return '';
         }
         return $this->callBlock($this->inv, $context ?? $this->scope, $context !== null, $data);
@@ -81,7 +103,6 @@ class HelperOptions
     private function callBlock(\Closure $closure, mixed $context, bool $pushDepths, ?array $data): string
     {
         $cx = $this->cx;
-        assert($cx !== null);
         $savedFrame = null;
         $bpStack = null;
 
@@ -133,12 +154,11 @@ class HelperOptions
             return '';
         }
         $cx = $this->cx;
-        assert($cx !== null);
         $cb = $this->cb;
 
-        // Push depths and save partials once for the entire loop.
+        // Push depths and save inlinePartials once for the entire loop.
         $cx->depths[] = $this->scope;
-        $savedPartials = $cx->partials;
+        $savedInlinePartials = $cx->inlinePartials;
 
         $last = count($items) - 1;
         $ret = '';
@@ -166,7 +186,7 @@ class HelperOptions
 
         $cx->frame = $outerFrame;
         array_pop($cx->depths);
-        $cx->partials = $savedPartials;
+        $cx->inlinePartials = $savedInlinePartials;
         return $ret;
     }
 }

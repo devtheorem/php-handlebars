@@ -3,6 +3,7 @@
 namespace DevTheorem\Handlebars\Test;
 
 use DevTheorem\Handlebars\Handlebars;
+use DevTheorem\Handlebars\HelperOptions;
 use DevTheorem\Handlebars\Options;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -35,7 +36,7 @@ class ErrorTest extends TestCase
             ]);
             $this->fail("Expected to throw exception: {$expected}. CODE: $php");
         } catch (\Exception $e) {
-            $this->assertEquals($expected, $e->getMessage(), $php);
+            $this->assertSame($expected, $e->getMessage(), $php);
         }
     }
 
@@ -126,6 +127,20 @@ class ErrorTest extends TestCase
                 'template' => '{{{foo}}}',
                 'options' => new Options(strict: true),
                 'expected' => '"foo" not defined',
+            ],
+            [
+                'template' => '{{foo}}',
+                'helpers' => [
+                    'foo' => fn(HelperOptions $options) => $options->fn(),
+                ],
+                'expected' => 'fn() is not supported for inline helpers',
+            ],
+            [
+                'template' => '{{foo}}',
+                'helpers' => [
+                    'foo' => fn(HelperOptions $options) => $options->inverse(),
+                ],
+                'expected' => 'inverse() is not supported for inline helpers',
             ],
             [
                 'template' => '{{foo}}',

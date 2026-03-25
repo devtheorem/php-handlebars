@@ -158,7 +158,7 @@ class HandlebarsSpecTest extends TestCase
             $this->fail("Should Fail: " . self::getSpecDetails($spec, $php, $helpersList) . "\n\nResult: $result");
         }
 
-        $this->assertEquals($spec['expected'], $result, self::getSpecDetails($spec, $php, $helpersList));
+        $this->assertSame($spec['expected'], $result, self::getSpecDetails($spec, $php, $helpersList));
     }
 
     /**

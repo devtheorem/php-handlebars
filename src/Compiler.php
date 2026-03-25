@@ -472,7 +472,7 @@ final class Compiler
 
         if ($partialName !== null && !$found) {
             // Register the block body as a fallback partial only if no runtime partial with this name exists yet.
-            $parts[] = "(isset(\$cx->partials[$p]) ? '' : " . self::getRuntimeFunc('in', "\$cx, $p, $bodyClosure") . ')';
+            $parts[] = "(isset(\$cx->inlinePartials[$p]) || isset(\$cx->partials[$p]) ? '' : " . self::getRuntimeFunc('in', "\$cx, $p, $bodyClosure") . ')';
         }
         $parts[] = self::getRuntimeFunc('p', "\$cx, $p, $vars, '', $bodyClosure");
         return implode('.', $parts);
