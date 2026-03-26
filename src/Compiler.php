@@ -600,12 +600,14 @@ final class Compiler
             return $base;
         }
 
-        $miss = $this->missValue($expression->original);
-
         // @partial-block as variable: truthy when an active partial block exists
         if ($data && $depth === 0 && count($stringParts) === 1 && $stringParts[0] === 'partial-block') {
             return "\$cx->partialBlock !== null ? true : null";
         }
+
+        $isLength = end($stringParts) === 'length';
+        $varParts = $isLength ? array_slice($stringParts, 0, -1) : $stringParts;
+        $miss = $this->missValue($expression->original);
 
         // Check block params (depth-0, non-data, non-scoped paths only, not SubExpression-headed)
         if (!$hasSubExprHead && !$data && $depth === 0 && !self::scopedId($expression)) {
@@ -613,57 +615,29 @@ final class Compiler
             if ($bp !== null) {
                 [$bpDepth, $bpIndex] = $bp;
                 $bpBase = "\$blockParams[$bpDepth][$bpIndex]";
-                $remaining = self::buildKeyAccess(array_slice($stringParts, 1));
                 // Mark the current compileProgram() level as having a direct $blockParams reference.
                 if ($this->bpRefStack) {
                     $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
                 }
-                return "$bpBase$remaining ?? $miss";
+                // Skip the block param name ($varParts[0]) since it has been resolved to a $blockParams index.
+                $parent = $bpBase . self::buildKeyAccess(array_slice($varParts, 1));
+                if ($isLength) {
+                    return $this->buildLookupLength($parent);
+                }
+                return "$parent ?? $miss";
             }
         }
 
-        // Build array access string
-        $n = self::buildKeyAccess($stringParts);
-
-        // Handle .length special case
-        $lastPart = end($stringParts);
-        if ($lastPart === 'length') {
-            $varParts = array_slice($stringParts, 0, -1);
-            $p = self::buildKeyAccess($varParts);
-
-            $checks = [];
-            if ($depth > 0) {
-                $checks[] = "isset($base)";
-            }
-            if ($p !== '' && $depth === 0 && !$hasSubExprHead) {
-                $checks[] = "isset($base$p)";
-            }
-            $baseP = "$base$p";
-            $checks[] = $baseP === '$in' ? '$inary' : "is_array($base$p)";
-
-            $cond = implode(' && ', $checks);
-            if (count($checks) > 1) {
-                $cond = "($cond)";
-            }
-            $lenStart = "$cond ? count($base$p) : ";
-
-            return "$base$n ?? ($lenStart$miss)";
+        // Handle .length: compile parent path through the normal mode-aware logic, then wrap in
+        // lookupLength() at runtime. This mirrors HBS.js, where .length is a normal property
+        // access with no compile-time special casing.
+        if ($isLength) {
+            return $this->buildLookupLength(
+                $this->compileModeAwareLookup($base, $varParts, $expression->original, 'null'),
+            );
         }
 
-        // assumeObjects and strict mode for helper arguments both use nullCheck chains.
-        // This mirrors HBS.js: both paths use bare nameLookup (no container.strict wrapping), so
-        // only a null intermediate throws (JS TypeError), while a missing key on a valid array
-        // returns null silently (JS undefined). nullCheck encodes those semantics and includes
-        // the key name in the exception message.
-        if ($this->context->options->assumeObjects || ($this->context->options->strict && $this->compilingHelperArgs)) {
-            return self::buildCallChain('nullCheck', $base, $stringParts);
-        }
-
-        if ($this->context->options->strict) {
-            return self::buildCallChain('strictLookup', $base, $stringParts, self::quote($expression->original));
-        }
-
-        return "$base$n ?? $miss";
+        return $this->compileModeAwareLookup($base, $stringParts, $expression->original, $miss);
     }
 
     private function StringLiteral(StringLiteral $literal): string
@@ -970,6 +944,33 @@ final class Compiler
             return "''";
         }
         return $this->compileProgram($program);
+    }
+
+    private function buildLookupLength(string $parent): string
+    {
+        $strict = $this->context->options->strict || $this->context->options->assumeObjects;
+        return self::getRuntimeFunc('lookupLength', $strict ? "$parent, true" : $parent);
+    }
+
+    /**
+     * Compile a mode-aware path access expression for the given base and parts.
+     * @param string[] $parts
+     */
+    private function compileModeAwareLookup(string $base, array $parts, string $original, string $miss): string
+    {
+        if (!$parts) {
+            return $base;
+        }
+        if ($this->context->options->assumeObjects || ($this->context->options->strict && $this->compilingHelperArgs)) {
+            // Use nullCheck chain for assumeObjects and helper arguments in strict mode.
+            // This mirrors HBS.js: both paths use bare nameLookup, so only a null intermediate throws
+            // (JS TypeError), while a missing key on a valid object returns null silently (JS undefined).
+            return self::buildCallChain('nullCheck', $base, $parts);
+        }
+        if ($this->context->options->strict) {
+            return self::buildCallChain('strictLookup', $base, $parts, self::quote($original));
+        }
+        return $base . self::buildKeyAccess($parts) . " ?? $miss";
     }
 
     private function throwKnownHelpersOnly(string $helperName): never

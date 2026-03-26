@@ -146,6 +146,29 @@ final class Runtime
     }
 
     /**
+     * Terminal .length lookup: returns count() for arrays (since PHP arrays have no native .length
+     * property), an explicit 'length' key if present, or null for non-array bases.
+     * When $strict is true, throws for any non-array base, mirroring HBS.js strict-mode behaviour.
+     */
+    public static function lookupLength(mixed $base, bool $strict = false): mixed
+    {
+        if (is_array($base)) {
+            return array_key_exists('length', $base) ? $base['length'] : count($base);
+        }
+        if ($strict) {
+            $desc = match (true) {
+                $base === null => 'null',
+                is_bool($base) => $base ? 'true' : 'false',
+                is_int($base) || is_float($base) => (string) $base,
+                is_string($base) => "\"$base\"",
+                default => get_debug_type($base),
+            };
+            throw new \Exception("\"length\" not defined in $desc");
+        }
+        return null;
+    }
+
+    /**
      * Build a RuntimeContext from raw render options and compile-time partial closures.
      *
      * @param RenderOptions $options

@@ -70,6 +70,30 @@ class ErrorTest extends TestCase
                 'expected' => '"foo.bar" not defined',
             ],
             [
+                'template' => '{{foo.bar.length}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => ['bar' => null]],
+                'expected' => '"length" not defined in null',
+            ],
+            [
+                'template' => '{{foo.length}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => false],
+                'expected' => '"length" not defined in false',
+            ],
+            [
+                'template' => '{{foo.length}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => 'hello'],
+                'expected' => '"length" not defined in "hello"',
+            ],
+            [
+                'template' => '{{foo.length}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => 42],
+                'expected' => '"length" not defined in 42',
+            ],
+            [
                 'template' => '{{#if foo.bar}}bad{{else}}OK{{/if}}',
                 'options' => new Options(strict: true),
                 'expected' => 'Cannot access property "bar" on null',

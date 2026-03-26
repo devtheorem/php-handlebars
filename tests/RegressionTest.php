@@ -2036,6 +2036,18 @@ class RegressionTest extends TestCase
                 'data' => ['items' => [1, 2, 3]],
                 'expected' => '3',
             ],
+            [
+                'desc' => 'length in block params',
+                'template' => '{{#each items as |item|}}{{item.length}}{{/each}}',
+                'data' => ['items' => [[1, 2, 3]]],
+                'expected' => '3',
+            ],
+            [
+                'desc' => 'length in block params with nested path',
+                'template' => '{{#each items as |item|}}{{item.nested.length}}{{/each}}',
+                'data' => ['items' => [['nested' => [1, 2]]]],
+                'expected' => '2',
+            ],
         ];
     }
 
