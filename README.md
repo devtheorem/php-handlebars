@@ -10,14 +10,14 @@ PHP Handlebars compiles and executes complex templates up to 40% faster than Lig
 | Library            | Compile time | Runtime | Total time | Peak memory usage |
 |--------------------|--------------|---------|------------|-------------------|
 | LightnCandy 1.2.6  | 5.2 ms       | 2.8 ms  | 8.0 ms     | 5.3 MB            |
-| PHP Handlebars 1.0 | 3.5 ms       | 1.6 ms  | 5.1 ms     | 3.6 MB            |
+| PHP Handlebars 1.1 | 3.5 ms       | 1.6 ms  | 5.1 ms     | 3.6 MB            |
 
 _Tested on PHP 8.5 with the JIT enabled. See the `benchmark` branch to run the same test._
 
 ## Features
 
 * Supports all Handlebars syntax and language features, including expressions, subexpressions, helpers,
-partials, hooks, and `@data` variables.
+partials, hooks, `@data` variables, whitespace control, and `.length` on arrays.
 * Templates are parsed using [PHP Handlebars Parser](https://github.com/devtheorem/php-handlebars-parser),
 which implements the same lexical analysis and AST grammar specification as Handlebars.js.
 * Tested against the full [Handlebars.js spec](https://github.com/jbboehr/handlebars-spec).
@@ -70,41 +70,53 @@ echo $template(['first' => 'John']); // Error: "last" not defined
 
 ### Available Options
 
-* `knownHelpers`: Associative array (`helperName => bool`) of helpers known to exist at template execution time.
-  Passing this allows the compiler to optimize a number of cases.
-  Builtin helpers are automatically included in this list and may be omitted by setting that value to `false`.
-* `knownHelpersOnly`: Enable to allow further optimizations based on the known helpers list.
-* `noEscape`: Enable to not HTML escape any content.
+* `knownHelpers`: Associative array (`helperName => bool`) of helpers that will be registered at runtime.
+  The compiler uses this to emit direct helper calls instead of dynamic dispatch, which is faster and required when `knownHelpersOnly` is set.
+  Built-in helpers (`if`, `unless`, `each`, `with`, `lookup`, `log`) are pre-populated as `true` and may be excluded by setting them to `false`.
+  Setting `if` or `unless` to `false` also disables the inline ternary optimization and allows those helpers to be overridden at runtime.
+
+* `knownHelpersOnly`: Restricts templates to only the helpers in `knownHelpers`, enabling further compile-time optimizations:
+  block sections and bare `{{identifier}}` expressions skip the runtime helper table and use a direct context lookup,
+  and any use of an unregistered helper throws a compile-time exception instead of falling back to dynamic dispatch.
+
+* `noEscape`: Set to `true` to disable HTML escaping of output.
+
 * `strict`: Run in strict mode. In this mode, templates will throw rather than silently ignore missing fields.
   This has the side effect of disabling inverse operations such as `{{^foo}}{{/foo}}`
   unless fields are explicitly included in the source object.
-* `assumeObjects`: Removes object existence checks when traversing paths.
-  This is a subset of strict mode that generates optimized templates when the data inputs are known to be safe.
-* `preventIndent`: Prevent indented partial-call from indenting the entire partial output by the same amount.
+
+* `assumeObjects`: A looser alternative to `strict` mode. A null intermediate in a path
+  (e.g. `foo` is null when resolving `foo.bar`) throws an exception, but a missing terminal key returns null silently.
+
+* `preventIndent`: Prevents an indented partial call from indenting the entire partial output by the same amount.
+
 * `ignoreStandalone`: Disables standalone tag removal.
   When set, blocks and partials that are on their own line will not remove the whitespace on that line.
+
 * `explicitPartialContext`: Disables implicit context for partials.
   When enabled, partials that are not passed a context value will execute against an empty object.
-* `partials`: Provide a `name => value` array of custom partial template strings.
-* `partialResolver`: A closure which will be called for any partial not in the `partials` array to return a template for it.
+
+* `partials`: An associative array of custom partial template strings (`name => template`).
+
+* `partialResolver`: A closure that will be called at compile time for any partial not found in the `partials` array,
+  and should return a template string for it.
 
 ## Runtime Options
 
 `Handlebars::compile` returns a closure which can be invoked as `$template($context, $options)`.
 The `$options` parameter takes an array of runtime options, accepting the following keys:
 
-* `data`: An array to define custom `@variable` private variables.
-* `helpers`: An `array<string, \Closure>` containing custom helpers to add to the built-in helpers.
-* `partials`: An `array<string, \Closure>` containing partial functions precompiled with `Handlebars::compile`.
-This is useful if multiple templates sharing the same partials need to be compiled and rendered, and you don't want
-to recompile the same partials over and over for each template.
+* `data`: An associative array of initial `@data` variables (e.g. `['version' => '1.0']` makes `@version` available in the template).
+
+* `helpers`: An `array<string, \Closure>` of helpers to merge with the built-in helpers. Can also be used to override a built-in helper by using the same name.
+
+* `partials`: An `array<string, \Closure>` of partial closures precompiled with `Handlebars::compile`.
+  Useful when multiple templates share the same partials, and you want to avoid recompiling them for each template.
 
 ## Custom Helpers
 
 Helper functions will be passed any arguments provided to the helper in the template.
 If needed, a final `$options` parameter can be included which will be passed a `HelperOptions` instance.
-This object contains properties for accessing `hash` arguments, `data`, and the current `scope`, `name`,
-as well as `fn()` and `inverse()` methods to render the block and else contents, respectively.
 
 For example, a custom `#equals` helper with JS equality semantics could be implemented as follows:
 
@@ -112,24 +124,61 @@ For example, a custom `#equals` helper with JS equality semantics could be imple
 use DevTheorem\Handlebars\{Handlebars, HelperOptions};
 
 $template = Handlebars::compile('{{#equals my_var false}}Equal to false{{else}}Not equal{{/equals}}');
-$options = [
-    'helpers' => [
-        'equals' => function (mixed $a, mixed $b, HelperOptions $options) {
-            // In JS, null is not equal to blank string or false or zero,
-            // and when both operands are strings no coercion is performed.
-            $equal = ($a === null || $b === null || is_string($a) && is_string($b))
-                ? $a === $b
-                : $a == $b;
+$helpers = [
+    'equals' => function (mixed $a, mixed $b, HelperOptions $options) {
+        // In JS, null is not equal to blank string or false or zero,
+        // and when both operands are strings no coercion is performed.
+        $equal = ($a === null || $b === null || is_string($a) && is_string($b))
+            ? $a === $b
+            : $a == $b;
 
-            return $equal ? $options->fn() : $options->inverse();
-        },
-    ],
+        return $equal ? $options->fn() : $options->inverse();
+    },
 ];
+$runtimeOptions = ['helpers' => $helpers];
 
-echo $template(['my_var' => 0], $options); // Equal to false
-echo $template(['my_var' => 1], $options); // Not equal
-echo $template(['my_var' => null], $options); // Not equal
+echo $template(['my_var' => 0], $runtimeOptions); // Equal to false
+echo $template(['my_var' => 1], $runtimeOptions); // Not equal
+echo $template(['my_var' => null], $runtimeOptions); // Not equal
 ```
+
+### HelperOptions Properties
+
+* `name` (readonly `string`): The helper name as it appeared in the template.
+  Useful in `helperMissing`/`blockHelperMissing` hooks to identify which name was called.
+
+* `hash` (readonly `array`): Key/value pairs passed as hash arguments in the template
+  (e.g. `{{helper foo=1 bar="x"}}` produces `['foo' => 1, 'bar' => 'x']`).
+
+* `blockParams` (readonly `int`): The number of block parameters declared by the helper call
+  (e.g. `{{#helper as |a b|}}` produces `2`).
+
+* `scope` (`mixed`): The current evaluation context (equivalent to `this` in a Handlebars.js helper).
+  Can be reassigned inside a helper to change the context passed to `fn()`.
+
+* `data` (`array`): The current `@data` frame. Contains `@`-prefixed private variables such as
+  `root`, `index`, `key`, `first`, `last`, and `_parent`. Can be read or modified inside a helper.
+
+### HelperOptions Methods
+
+* `fn(mixed $context = <current scope>, mixed $data = null): string`: Renders the block body.
+  Pass a new context as `$context` to change what the block renders against (equivalent to `options.fn(newContext)` in JS).
+  Pass a `$data` array with a `'data'` key to inject additional `@`-prefixed variables into the block,
+  and/or a `'blockParams'` key containing an array of values to expose as block parameters.
+
+* `inverse(mixed $context = null, mixed $data = null): string`: Renders the `{{else}}` / inverse block.
+  Returns an empty string if no inverse block was provided.
+  Accepts the same optional `$context` and `$data` arguments as `fn()`.
+
+* `hasPartial(string $name): bool`: Returns `true` if a partial with the given name is registered.
+  Useful alongside `registerPartial()` to implement lazy partial loading.
+
+* `registerPartial(string $name, \Closure $partial): void`: Registers a compiled partial closure for the
+  remainder of the render. The closure must be produced by `Handlebars::compile`.
+
+> [!NOTE]  
+> `isset($options->fn)` and `isset($options->inverse)` return true if the helper was called as a block,
+> and `false` for inline helper calls.
 
 ## Hooks
 
@@ -147,19 +196,18 @@ use DevTheorem\Handlebars\{Handlebars, HelperOptions};
 $template = Handlebars::compile('{{foo 2 "value"}}
 {{#person}}{{firstName}} {{lastName}}{{/person}}');
 
-$options = [
-    'helpers' => [
-        'helperMissing' => function (...$args) {
-            $options = array_pop($args);
-            return "Missing {$options->name}(" . implode(',', $args) . ')';
-        },
-        'blockHelperMissing' => function (mixed $context, HelperOptions $options) {
-            return "'{$options->name}' not found. Printing block: {$options->fn($context)}";
-        },
-    ],
+$helpers = [
+    'helperMissing' => function (...$args) {
+        $options = array_pop($args);
+        return "Missing {$options->name}(" . implode(',', $args) . ')';
+    },
+    'blockHelperMissing' => function (mixed $context, HelperOptions $options) {
+        return "'{$options->name}' not found. Printing block: {$options->fn($context)}";
+    },
 ];
 
-echo $template(['person' => ['firstName' => 'John', 'lastName' => 'Doe']], $options);
+$data = ['person' => ['firstName' => 'John', 'lastName' => 'Doe']];
+echo $template($data, ['helpers' => $helpers]);
 ```
 Output:
 > Missing foo(2,value)  
@@ -176,7 +224,7 @@ using the `Handlebars::escapeExpression()` method to avoid potential security co
 
 ## Missing Features
 
-All syntax and language features from Handlebars.js 4.7.8 should work the same in PHP Handlebars,
+All syntax and language features from Handlebars.js 4.7.9 should work the same in PHP Handlebars,
 with the following exceptions:
 
 * Custom Decorators have not been implemented, as they are [deprecated in Handlebars.js](https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md).

@@ -3,10 +3,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] Dynamic Partial Resolution - 2026-03-26
+
+### Added
+- `HelperOptions::hasPartial()`: check whether a named partial is registered at runtime.
+- `HelperOptions::registerPartial()`: register a compiled partial closure from within a helper,
+  enabling the same lazy-loading pattern as `Handlebars.registerPartial()` in Handlebars.js
+  ([#5](https://github.com/devtheorem/php-handlebars/issues/5), https://github.com/zordius/lightncandy/issues/296).
+
+### Fixed
+- Nested `{{> @partial-block}}` calls from runtime partials.
+- Failover rendering for `{{> partial}}fallback{{/partial}}` blocks where the partial is also
+  called conditionally earlier in the template.
+- `isset($options->fn)` and `isset($options->inverse)` now correctly return `true` for all block
+  helper calls, even when the block is inverted or lacks an `{{else}}` clause.
+- Closures at complex paths without any arguments (e.g. `{{#obj.fn}}`) are no longer passed a
+  `HelperOptions` argument (matching Handlebars.js behavior).
+- Inverted sections with literal block paths (e.g. `{{^"foo"}}`) now correctly route through
+  `blockHelperMissing`.
+- With `knownHelpersOnly` enabled, inverted sections now correctly skip dispatch to unregistered runtime helpers.
+- `../` expressions inside an `{{else}}` body now correctly resolve to the block helper's scope
+  when there is no enclosing block context.
+- `.length` lookup on block param variables and in `strict` mode.
+
+
 ## [1.0.1] Root SubExpression - 2026-03-24
 ### Fixed
 - Support for sub-expressions that are `PathExpression` roots (e.g. `{{(my-helper foo).bar}}`).
-- Compilation of multi-segment `if`/`unless` conditions (https://github.com/devtheorem/php-handlebars/issues/15).
+- Compilation of multi-segment `if`/`unless` conditions ([#15](https://github.com/devtheorem/php-handlebars/issues/15)).
 - Helper argument handling in `strict` mode.
 - `assumeObjects` errors now align better with Handlebars.js.
 
@@ -40,7 +64,7 @@ and uses almost 30% less memory. The code is also significantly simpler and easi
   renders, and removes limitations on what they can access and do
   (e.g. it resolves https://github.com/zordius/lightncandy/issues/342).
 - Exceptions thrown by custom helpers are no longer caught and re-thrown, so the original exception
-  can now be caught in your own code for easier debugging (https://github.com/devtheorem/php-handlebars/issues/13).
+  can now be caught in your own code for easier debugging ([#13](https://github.com/devtheorem/php-handlebars/issues/13)).
 - The `partialResolver` closure signature no longer receives an internal `Context` argument.
   Now only the partial name is passed.
 - `knownHelpersOnly` now works as in Handlebars.js, and an exception will be thrown if the template
@@ -53,8 +77,8 @@ and uses almost 30% less memory. The code is also significantly simpler and easi
 - `Options::$helperResolver`: use the `helperMissing` / `blockHelperMissing` runtime helpers instead.
 
 ### Fixed
-- Fatal error with deeply nested `else if` using custom helper (https://github.com/devtheorem/php-handlebars/issues/2).
-- Incorrect rendering of float values (https://github.com/devtheorem/php-handlebars/issues/11).
+- Fatal error with deeply nested `else if` using custom helper ([#2](https://github.com/devtheorem/php-handlebars/issues/2)).
+- Incorrect rendering of float values ([#11](https://github.com/devtheorem/php-handlebars/issues/11)).
 - Conditional `@partial-block` expressions.
 - Support for `@partial-block` in nested partials (https://github.com/zordius/lightncandy/issues/292).
 - Ability to precompile partials and pass them at runtime (https://github.com/zordius/lightncandy/issues/341).
@@ -158,6 +182,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[1.1.0]: https://github.com/devtheorem/php-handlebars/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/devtheorem/php-handlebars/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/devtheorem/php-handlebars/compare/v0.9.9...v1.0.0
 [0.9.9]: https://github.com/devtheorem/php-handlebars/compare/v0.9.8...v0.9.9
