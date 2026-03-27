@@ -71,14 +71,7 @@ class HelperOptions
             }
             return '';
         }
-        $cx = $this->cx;
-        // Save inlinePartials so that any {{#* inline}} partials registered inside the block body
-        // don't leak out after fn() returns. The spec requires inline partials to be
-        // block-scoped. PHP copy-on-write makes this assignment cheap when no inline partials are registered.
-        $savedInlinePartials = $cx->inlinePartials;
-        $ret = $this->invokeBlock($this->cb, $context, $data);
-        $cx->inlinePartials = $savedInlinePartials;
-        return $ret;
+        return $this->invokeBlock($this->cb, $context, $data);
     }
 
     public function inverse(mixed $context = Scope::Use, mixed $data = null): string
@@ -95,6 +88,10 @@ class HelperOptions
     private function invokeBlock(\Closure $closure, mixed $context, mixed $data): string
     {
         $cx = $this->cx;
+        // Save inlinePartials so that any {{#* inline}} partials registered inside the block body
+        // don't leak out after it returns. The spec requires inline partials to be
+        // block-scoped. PHP copy-on-write makes this assignment cheap when no inline partials are registered.
+        $savedInlinePartials = $cx->inlinePartials;
         $scope = $this->scope;
         // Skip depths push when the caller explicitly passes the current scope (equivalent to
         // HBS.js options.fn(this) / options.inverse(this)), since the scope level isn't changing.
@@ -129,6 +126,7 @@ class HelperOptions
         if ($savedFrame !== null) {
             $cx->frame = $savedFrame;
         }
+        $cx->inlinePartials = $savedInlinePartials;
         return $ret;
     }
 

@@ -1978,6 +1978,10 @@ class RegressionTest extends TestCase
                 'data' => ['section' => ['x' => 1]],
                 'expected' => 'INSIDEBEFORE',
             ],
+            'inline partials registered inside an else block do not leak out after the section ends' => [
+                'template' => '{{#* inline "p"}}BEFORE{{/inline}}{{#foo}}{{else}}{{#* inline "p"}}INSIDE{{/inline}}{{> p}}{{/foo}}{{> p}}',
+                'expected' => 'INSIDEBEFORE',
+            ],
         ];
     }
 
