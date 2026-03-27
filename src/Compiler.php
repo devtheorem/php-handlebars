@@ -124,8 +124,8 @@ final class Compiler
             $node instanceof PartialBlockStatement => $this->PartialBlockStatement($node),
             $node instanceof Decorator => $this->Decorator($node),
             $node instanceof MustacheStatement => $this->MustacheStatement($node),
-            $node instanceof ContentStatement => $this->ContentStatement($node),
-            $node instanceof CommentStatement => $this->CommentStatement($node),
+            $node instanceof ContentStatement => self::quote($node->value),
+            $node instanceof CommentStatement => '',
             $node instanceof SubExpression => $this->SubExpression($node),
             default => throw new \Exception('Unknown type: ' . (new \ReflectionClass($node))->getShortName()),
         };
@@ -136,11 +136,10 @@ final class Compiler
         return match (true) {
             $expr instanceof SubExpression => $this->SubExpression($expr),
             $expr instanceof PathExpression => $this->PathExpression($expr),
-            $expr instanceof StringLiteral => $this->StringLiteral($expr),
-            $expr instanceof NumberLiteral => $this->NumberLiteral($expr),
-            $expr instanceof BooleanLiteral => $this->BooleanLiteral($expr),
-            $expr instanceof NullLiteral => $this->NullLiteral($expr),
-            $expr instanceof UndefinedLiteral => $this->UndefinedLiteral($expr),
+            $expr instanceof StringLiteral => self::quote($expr->value),
+            $expr instanceof NumberLiteral => (string) $expr->value,
+            $expr instanceof BooleanLiteral => $expr->value ? 'true' : 'false',
+            $expr instanceof NullLiteral, $expr instanceof UndefinedLiteral => 'null',
             default => throw new \Exception('Unknown expression type: ' . (new \ReflectionClass($expr))->getShortName()),
         };
     }
@@ -209,7 +208,7 @@ final class Compiler
         assert($block->program !== null);
 
         $blockFn = $this->compileProgramWithBlockParams($block->program);
-        $else = $this->compileElseClause($block);
+        $else = $this->compileProgramOrNull($block->inverse);
 
         if ($this->context->options->knownHelpersOnly) {
             return self::getRuntimeFunc('sec', "\$cx, $var, \$in, $blockFn, $else");
@@ -291,11 +290,9 @@ final class Compiler
     private function compileBlockHelper(BlockStatement $block, string $name): string
     {
         $inverted = $block->program === null;
-        if ($inverted) {
-            assert($block->inverse !== null);
-        }
         // For inverted blocks the fn body comes from the inverse program; for normal blocks, the program.
-        $fnProgram = $inverted ? $block->inverse : $block->program;
+        $fnProgram = $block->program ?? $block->inverse;
+        assert($fnProgram !== null);
 
         // Inline if/unless as ternary — eliminates hbbch dispatch and HelperOptions allocation.
         // Safe because if/unless don't change scope, so $cx and $in are already correct.
@@ -303,14 +300,19 @@ final class Compiler
         if ($this->canInlineConditional($block, $name, $fnProgram->blockParams)) {
             $cond = $this->compileConditionalExpr($block->params[0], $name === ($inverted ? 'if' : 'unless'));
             $body = $this->compileProgram($fnProgram);
-            $elseBody = $inverted ? "''" : $this->compileProgramOrEmpty($block->inverse);
+            $elseBody = $this->compileProgramOrEmpty($inverted ? null : $block->inverse);
             return "($cond ? $body : $elseBody)";
         }
 
         $blockFn = $this->compileProgramWithBlockParams($fnProgram);
-        [$fn, $else] = $inverted
-            ? ['null', $blockFn]
-            : [$blockFn, $this->compileElseClause($block)];
+        if ($inverted) {
+            // no {{else}} clause, so there is nothing to compile for fn
+            $fn = 'null';
+            $else = $blockFn;
+        } else {
+            $fn = $blockFn;
+            $else = $this->compileProgramOrNull($block->inverse);
+        }
 
         $outerBp = $this->outerBlockParamsExpr();
         $params = $this->compileParams($block->params, $block->hash);
@@ -372,7 +374,7 @@ final class Compiler
         $blockFn = $block->program !== null
             ? $this->compileProgramWithBlockParams($block->program)
             : 'null';
-        $else = $this->compileElseClause($block);
+        $else = $this->compileProgramOrNull($block->inverse);
         $outerBp = $this->outerBlockParamsExpr();
         $helperName = self::quote($name);
         return self::getRuntimeFunc('dynhbbch', "\$cx, $helperName, $varPath, $params, \$in, $blockFn, $else, " . count($bp) . ", $outerBp");
@@ -385,7 +387,7 @@ final class Compiler
         if ($helperName !== 'inline') {
             throw new \Exception('Unknown decorator: "' . $helperName . '"');
         } elseif (!$block->params) {
-            $partialName = 'undefined';
+            $partialName = 'undefined'; // match JS for {{#*inline}} without a name (params[0] on empty array is undefined)
         } else {
             $firstArg = $block->params[0];
             if (!$firstArg instanceof Literal) {
@@ -556,16 +558,6 @@ final class Compiler
         return self::getRuntimeFunc($fn, "\$in[$escapedKey] ?? $miss");
     }
 
-    private function ContentStatement(ContentStatement $statement): string
-    {
-        return self::quote($statement->value);
-    }
-
-    private function CommentStatement(CommentStatement $statement): string
-    {
-        return '';
-    }
-
     // ── Expressions ─────────────────────────────────────────────────
 
     private function SubExpression(SubExpression $expression): string
@@ -604,7 +596,8 @@ final class Compiler
             $stringParts = $expression->tail;
         } else {
             $base = $this->buildBasePath($data, $depth);
-            $stringParts = self::stringPartsOf($parts);
+            /** @var string[] $parts */
+            $stringParts = $parts;
         }
 
         // `this` with no parts or empty parts
@@ -650,31 +643,6 @@ final class Compiler
         }
 
         return $this->compileModeAwareLookup($base, $stringParts, $expression->original, $miss);
-    }
-
-    private function StringLiteral(StringLiteral $literal): string
-    {
-        return self::quote($literal->value);
-    }
-
-    private function NumberLiteral(NumberLiteral $literal): string
-    {
-        return (string) $literal->value;
-    }
-
-    private function BooleanLiteral(BooleanLiteral $literal): string
-    {
-        return $literal->value ? 'true' : 'false';
-    }
-
-    private function UndefinedLiteral(UndefinedLiteral $literal): string
-    {
-        return 'null';
-    }
-
-    private function NullLiteral(NullLiteral $literal): string
-    {
-        return 'null';
     }
 
     /**
@@ -849,18 +817,6 @@ final class Compiler
     }
 
     /**
-     * Compile the else/inverse clause of a block as a trailing closure argument, or 'null' if absent.
-     */
-    private function compileElseClause(BlockStatement $block): string
-    {
-        if (!$block->inverse) {
-            $this->lastCompileProgramHadDirectBpRef = false;
-            return 'null';
-        }
-        return $this->compileProgramWithBlockParams($block->inverse);
-    }
-
-    /**
      * Build the base path expression for a given data flag and depth.
      */
     private function buildBasePath(bool $data, int $depth): string
@@ -929,6 +885,15 @@ final class Compiler
             : 'null';
     }
 
+    private function compileProgramOrNull(?Program $program): string
+    {
+        if (!$program) {
+            $this->lastCompileProgramHadDirectBpRef = false;
+            return 'null';
+        }
+        return $this->compileProgramWithBlockParams($program);
+    }
+
     private function compileProgramOrEmpty(?Program $program): string
     {
         if (!$program) {
@@ -985,15 +950,5 @@ final class Compiler
             $this->throwKnownHelpersOnly($name);
         }
         return self::getRuntimeFunc('dynhbch', "\$cx, $helperName, $compiledParams, \$in");
-    }
-
-    /**
-     * Return only the string parts of a mixed parts array, re-indexed.
-     * @param array<string|SubExpression> $parts
-     * @return list<string>
-     */
-    private static function stringPartsOf(array $parts): array
-    {
-        return array_values(array_filter($parts, fn($p) => is_string($p)));
     }
 }

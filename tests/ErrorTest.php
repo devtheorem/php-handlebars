@@ -31,26 +31,24 @@ class ErrorTest extends TestCase
         $php = Handlebars::precompile($template, $options ?? new Options());
         $renderer = Handlebars::template($php);
         try {
-            $renderer($data, [
-                'helpers' => $helpers,
-            ]);
-            $this->fail("Expected to throw exception: {$expected}. CODE: $php");
+            $result = $renderer($data, ['helpers' => $helpers]);
+            $this->fail("Expected exception: {$expected}\nRendered: $result\nPHP code:\n$php");
         } catch (\Exception $e) {
-            $this->assertSame($expected, $e->getMessage(), $php);
+            $this->assertSame($expected, $e->getMessage(), "PHP code:\n$php");
         }
     }
 
     /**
-     * @return RenderTest[]
+     * @return array<string, RenderTest>
      */
     public static function renderErrorProvider(): array
     {
         return [
-            [
+            'missing partial' => [
                 'template' => '{{>not_found}}',
                 'expected' => "The partial not_found could not be found",
             ],
-            [
+            'partial-block not found in nested partials' => [
                 'template' => "{{#> testPartial}}\n  {{#> innerPartial}}\n   {{> @partial-block}}\n  {{/innerPartial}}\n{{/testPartial}}",
                 'options' => new Options(
                     partials: [
@@ -60,89 +58,87 @@ class ErrorTest extends TestCase
                 ),
                 'expected' => "The partial @partial-block could not be found",
             ],
-            [
+            'partial-block not found at top level' => [
                 'template' => '{{> @partial-block}}',
                 'expected' => "The partial @partial-block could not be found",
             ],
-            [
+            'strict mode missing nested property' => [
                 'template' => '{{foo.bar}}',
                 'options' => new Options(strict: true),
                 'data' => ['foo' => []],
                 'expected' => '"foo.bar" not defined',
             ],
-            [
+            'strict mode .length on null' => [
                 'template' => '{{foo.bar.length}}',
                 'options' => new Options(strict: true),
                 'data' => ['foo' => ['bar' => null]],
                 'expected' => '"length" not defined in null',
             ],
-            [
+            'strict mode .length on false' => [
                 'template' => '{{foo.length}}',
                 'options' => new Options(strict: true),
                 'data' => ['foo' => false],
                 'expected' => '"length" not defined in false',
             ],
-            [
+            'strict mode .length on string' => [
                 'template' => '{{foo.length}}',
                 'options' => new Options(strict: true),
                 'data' => ['foo' => 'hello'],
                 'expected' => '"length" not defined in "hello"',
             ],
-            [
+            'strict mode .length on integer' => [
                 'template' => '{{foo.length}}',
                 'options' => new Options(strict: true),
                 'data' => ['foo' => 42],
                 'expected' => '"length" not defined in 42',
             ],
-            [
+            'strict mode null property access in if' => [
                 'template' => '{{#if foo.bar}}bad{{else}}OK{{/if}}',
                 'options' => new Options(strict: true),
                 'expected' => 'Cannot access property "bar" on null',
             ],
-            [
+            'strict mode missing variable' => [
                 'template' => '{{foo}}',
                 'options' => new Options(strict: true),
                 'expected' => '"foo" not defined',
             ],
-            [
-                // strict mode should override helperMissing
+            'strict mode should override helperMissing' => [
                 'template' => '{{foo}}',
                 'options' => new Options(strict: true),
                 'helpers' => ['helperMissing' => fn() => 'bad'],
                 'expected' => '"foo" not defined',
             ],
-            [
-                // strict mode should override blockHelperMissing
+            'strict mode should override blockHelperMissing' => [
                 'template' => '{{#foo}}OK{{/foo}}',
                 'options' => new Options(strict: true),
                 'helpers' => ['blockHelperMissing' => fn() => 'bad'],
                 'expected' => '"foo" not defined',
             ],
-            [
+            'strict mode missing block variable' => [
                 'template' => '{{#foo}}OK{{/foo}}',
                 'options' => new Options(strict: true),
                 'expected' => '"foo" not defined',
             ],
-            [
+            'strict mode missing unescaped variable' => [
                 'template' => '{{{foo}}}',
                 'options' => new Options(strict: true),
                 'expected' => '"foo" not defined',
             ],
-            [
+            'inline helper fn() unsupported' => [
                 'template' => '{{foo}}',
                 'helpers' => [
                     'foo' => fn(HelperOptions $options) => $options->fn(),
                 ],
                 'expected' => 'fn() is not supported for inline helpers',
             ],
-            [
+            'inline helper inverse() unsupported' => [
                 'template' => '{{foo}}',
                 'helpers' => [
                     'foo' => fn(HelperOptions $options) => $options->inverse(),
                 ],
                 'expected' => 'inverse() is not supported for inline helpers',
             ],
-            [
+            'helper exception propagates' => [
                 'template' => '{{foo}}',
                 'helpers' => [
                     'foo' => function () {
@@ -151,48 +147,51 @@ class ErrorTest extends TestCase
                 ],
                 'expected' => 'Expect the unexpected',
             ],
-            // ensure that callable strings in data aren't treated as functions
-            [
+            'callable strings in data should not be treated as functions' => [
                 'template' => "{{#foo.bar 'arg'}}{{/foo.bar}}",
                 'data' => ['foo' => ['bar' => 'strlen']],
                 'expected' => 'Missing helper: "foo.bar"',
             ],
-            [
+            'missing helper typeof' => [
                 'template' => '{{typeof hello}}',
                 'expected' => 'Missing helper: "typeof"',
             ],
-            [
+            'missing block helper test' => [
                 'template' => '{{#test foo}}{{/test}}',
                 'expected' => 'Missing helper: "test"',
             ],
-            [
+            'missing helper in subexpression' => [
                 'template' => '{{test_join (foo bar)}}',
                 'helpers' => [
-                    'test_join' => function ($input) {
-                        return join('.', $input);
-                    },
+                    'test_join' => fn($input) => join('.', $input),
                 ],
                 'expected' => 'Missing helper: "foo"',
             ],
-            [
+            'missing helper in dynamic partial' => [
                 'template' => '{{> (foo) bar}}',
                 'expected' => 'Missing helper: "foo"',
             ],
-            [
+            'with requires one argument' => [
                 'template' => '{{#with}}OK!{{/with}}',
                 'expected' => '#with requires exactly one argument',
             ],
-            [
+            'if requires one argument' => [
                 'template' => '{{#if}}OK!{{/if}}',
                 'expected' => '#if requires exactly one argument',
             ],
-            [
+            'unless requires one argument' => [
                 'template' => '{{#unless}}OK!{{/unless}}',
                 'expected' => '#unless requires exactly one argument',
             ],
-            [
+            'each requires iterator argument' => [
                 'template' => '{{#each}}OK!{{/each}}',
                 'expected' => 'Must pass iterator to #each',
+            ],
+            'strict mode should throw for missing block param property' => [
+                'template' => '{{#each items as |item|}}{{item.missing}}{{/each}}',
+                'options' => new Options(strict: true),
+                'data' => ['items' => [['val' => 'x']]],
+                'expected' => '"item.missing" not defined',
             ],
         ];
     }
@@ -200,41 +199,38 @@ class ErrorTest extends TestCase
     #[DataProvider("errorProvider")]
     public function testErrors(string $template, string $expected, ?Options $options = null): void
     {
-        try {
-            Handlebars::precompile($template, $options ?? new Options());
-            $this->fail("Expected to throw exception: {$expected}");
-        } catch (\Exception $e) {
-            $this->assertSame($expected, $e->getMessage());
-        }
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage($expected);
+        Handlebars::precompile($template, $options ?? new Options());
     }
 
     /**
-     * @return ErrorCase[]
+     * @return array<string, ErrorCase>
      */
     public static function errorProvider(): array
     {
         return [
-            [
+            'knownHelpersOnly rejects unknown inline helper' => [
                 'template' => '{{typeof hello}}',
                 'options' => new Options(knownHelpersOnly: true),
                 'expected' => 'You specified knownHelpersOnly, but used the unknown helper typeof',
             ],
-            [
+            'knownHelpersOnly rejects unknown block helper with args' => [
                 'template' => '{{#test "arg"}}{{/test}}',
                 'options' => new Options(knownHelpersOnly: true),
                 'expected' => 'You specified knownHelpersOnly, but used the unknown helper test',
             ],
-            [
+            'knownHelpersOnly rejects unknown block helper with hash' => [
                 'template' => '{{#list id="nav-bar"}}{{/list}}',
                 'options' => new Options(knownHelpersOnly: true),
                 'expected' => 'You specified knownHelpersOnly, but used the unknown helper list',
             ],
-            [
+            'knownHelpersOnly rejects if when disabled via knownHelpers' => [
                 'template' => '{{#if true}}nope{{/if}}',
                 'options' => new Options(knownHelpers: ['if' => false], knownHelpersOnly: true),
                 'expected' => 'You specified knownHelpersOnly, but used the unknown helper if',
             ],
-            [
+            'unknown decorator throws' => [
                 'template' => '{{#*help me}}{{/help}}',
                 'expected' => 'Unknown decorator: "help"',
             ],
