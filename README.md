@@ -10,7 +10,7 @@ PHP Handlebars compiles and executes complex templates up to 40% faster than Lig
 | Library            | Compile time | Runtime | Total time | Peak memory usage |
 |--------------------|--------------|---------|------------|-------------------|
 | LightnCandy 1.2.6  | 5.2 ms       | 2.8 ms  | 8.0 ms     | 5.3 MB            |
-| PHP Handlebars 1.1 | 3.5 ms       | 1.6 ms  | 5.1 ms     | 3.6 MB            |
+| PHP Handlebars 1.2 | 3.7 ms       | 1.5 ms  | 5.2 ms     | 3.6 MB            |
 
 _Tested on PHP 8.5 with the JIT enabled. See the `benchmark` branch to run the same test._
 
@@ -154,10 +154,9 @@ echo $template(['my_var' => null], $runtimeOptions); // Not equal
   (e.g. `{{#helper as |a b|}}` produces `2`).
 
 * `scope` (`mixed`): The current evaluation context (equivalent to `this` in a Handlebars.js helper).
-  Can be reassigned inside a helper to change the context passed to `fn()`.
 
-* `data` (`array`): The current `@data` frame. Contains `@`-prefixed private variables such as
-  `root`, `index`, `key`, `first`, `last`, and `_parent`. Can be read or modified inside a helper.
+* `data` (`array`): The current `@data` frame. `root` refers to the top-level context.
+  `index`, `key`, `first`, and `last` are set by `{{#each}}` blocks. Can be read or modified inside a helper.
 
 ### HelperOptions Methods
 
@@ -177,7 +176,7 @@ echo $template(['my_var' => null], $runtimeOptions); // Not equal
   remainder of the render. The closure must be produced by `Handlebars::compile`.
 
 > [!NOTE]  
-> `isset($options->fn)` and `isset($options->inverse)` return true if the helper was called as a block,
+> `isset($options->fn)` and `isset($options->inverse)` return `true` if the helper was called as a block,
 > and `false` for inline helper calls.
 
 ## Hooks
@@ -221,6 +220,13 @@ When a helper is executed in a `{{{ }}}` expression, the original return value w
 Helpers may return a `DevTheorem\Handlebars\SafeString` instance to prevent escaping the return value.
 When constructing the string that will be marked as safe, any external content should be properly escaped
 using the `Handlebars::escapeExpression()` method to avoid potential security concerns.
+
+## Data Frames
+
+Block helpers that inject `@`-prefixed variables should create a child data frame using
+`Handlebars::createFrame($options->data)`, add their variables to it, and pass it to `fn()` or `inverse()`
+via the `data` key (e.g. `$options->fn($context, ['data' => $frame])`). This mirrors `Handlebars.createFrame()`
+in Handlebars.js, isolating the helper's variables while still inheriting parent data such as `@root`.
 
 ## Missing Features
 

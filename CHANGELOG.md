@@ -3,6 +3,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] Data Frames - 2026-03-30
+
+### Added
+- `Handlebars::createFrame()`: creates a child `@data` frame inheriting fields from a parent frame,
+  equivalent to `Handlebars.createFrame()` in Handlebars.js.
+
+### Changed
+- To align with Handlebars.js, `@data` variables passed to `fn()` or `inverse()` by block helpers are
+  no longer automatically merged with parent data and `@root`. For example, if a helper calls `fn()`
+  with `['data' => ['index' => 0]]` as the second parameter, `@index` will now be the *only* `@data`
+  variable inside the block. To set `@`-prefixed variables while still inheriting parent `@data`
+  variables, call `Handlebars::createFrame($options->data)` to create an isolated child frame.
+  Then assign new keys to it before passing it to the `data` option of `fn()` or `inverse()`.
+- `Handlebars::escapeExpression()` now uses `strtr()` instead of `str_replace()` for better performance.
+
+### Fixed
+- Block param path lookups and literal path lookups (e.g. `{{"foo"}}`, `{{#"foo"}}`) in `strict`
+  mode no longer incorrectly throw when the key exists but its value is `null`.
+- Inline partials defined inside an `{{else}}` block no longer leak into the surrounding scope.
+
+
 ## [1.1.0] Dynamic Partial Resolution - 2026-03-26
 
 ### Added
@@ -182,6 +203,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[1.2.0]: https://github.com/devtheorem/php-handlebars/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/devtheorem/php-handlebars/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/devtheorem/php-handlebars/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/devtheorem/php-handlebars/compare/v0.9.9...v1.0.0
