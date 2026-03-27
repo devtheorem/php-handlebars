@@ -264,29 +264,6 @@ final class Runtime
     }
 
     /**
-     * Returns true if an inverse block {{^var}} should be rendered.
-     *
-     * @param array<array<mixed>|string|int>|string|int|bool|null $v value to be tested
-     *
-     * @return bool Return true when the value is null or false or empty
-     */
-    public static function isec(mixed $v): bool
-    {
-        return $v === null || $v === false || (is_array($v) && !$v);
-    }
-
-    /**
-     * Inverted section with runtime helper check.
-     */
-    public static function isech(RuntimeContext $cx, mixed $v, mixed $in, \Closure $else, string $helperName): string
-    {
-        if (isset($cx->helpers[$helperName])) {
-            return static::hbbch($cx, $cx->helpers[$helperName], $helperName, [], [], $in, null, $else);
-        }
-        return static::hbbch($cx, $cx->helpers['blockHelperMissing'], $helperName, [$v], [], $in, null, $else);
-    }
-
-    /**
      * HTML encode {{var}} just like Handlebars.js
      */
     public static function encq(mixed $var): string
@@ -327,28 +304,26 @@ final class Runtime
     }
 
     /**
-     * For {{#var}} sections.
+     * For {{#var}} and {{^var}} sections.
+     * Pass null for $cb when compiling an inverted section ({{^var}}) — blockHelperMissing will call inverse().
      *
      * @param mixed $in input data with current scope
-     * @param \Closure $cb callback function to render child context
+     * @param \Closure|null $cb callback function to render child context; null for inverted sections
      * @param \Closure|null $else callback function to render child context when {{else}}
      */
-    public static function sec(RuntimeContext $cx, mixed $value, mixed $in, \Closure $cb, ?\Closure $else = null, ?string $helperName = null): string
+    public static function sec(RuntimeContext $cx, mixed $value, mixed $in, ?\Closure $cb, ?\Closure $else = null, ?string $helperName = null): string
     {
         if ($helperName !== null && isset($cx->helpers[$helperName])) {
             return static::hbbch($cx, $cx->helpers[$helperName], $helperName, [], [], $in, $cb, $else);
         }
 
-        // Lambda functions in block position receive HelperOptions directly.
-        // This must be checked before blockHelperMissing routing.
+        // Lambda functions in block position: simple-path identifiers ($helperName set) receive
+        // HelperOptions so they can render fn/inverse; complex paths ($helperName null) are called
+        // with no arguments, mirroring HBS.js which does not treat them as helper calls.
         if ($value instanceof \Closure) {
-            $result = $value(new HelperOptions(
-                scope: $in,
-                data: $cx->frame,
-                cx: $cx,
-                cb: $cb,
-                inv: $else,
-            ));
+            $result = $helperName !== null
+                ? $value(new HelperOptions(scope: $in, data: $cx->frame, cx: $cx, cb: $cb, inv: $else))
+                : $value();
             return static::resolveBlockResult($cx, $result, $in, $cb, $else);
         }
 
@@ -549,7 +524,7 @@ final class Runtime
      * @param \Closure|null $else callback function to render child context when {{else}}
      * @param array<mixed> $outerBlockParams outer block param stack for block params declared by the template
      */
-    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $positional, array $hash, mixed &$_this, \Closure $cb, ?\Closure $else, int $blockParamCount, array $outerBlockParams): mixed
+    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $positional, array $hash, mixed &$_this, ?\Closure $cb, ?\Closure $else, int $blockParamCount, array $outerBlockParams): mixed
     {
         $helper = $cx->helpers[$name] ?? null;
         if ($helper !== null) {

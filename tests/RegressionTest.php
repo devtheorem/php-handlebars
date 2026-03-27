@@ -782,11 +782,20 @@ class RegressionTest extends TestCase
                 'template' => '{{^helper items as |foo bar baz|}}{{foo}}{{bar}}{{baz}}{{/helper}}',
                 'helpers' => [
                     'helper' => function (array $items, HelperOptions $options) {
-                        return $options->inverse(null, ['blockParams' => [1, 2, 3]]);
+                        return $options->inverse($options->scope, ['blockParams' => [1, 2, 3]]);
                     },
                 ],
                 'data' => ['items' => []],
                 'expected' => '123',
+            ],
+            [
+                'desc' => 'inverse() called with no args at top level: ../ in else body resolves to current scope',
+                'template' => '{{^myHelper}}{{../parent}}{{/myHelper}}',
+                'data' => ['parent' => 'value'],
+                'helpers' => [
+                    'myHelper' => fn(HelperOptions $options) => $options->inverse(),
+                ],
+                'expected' => 'value',
             ],
             [
                 'desc' => 'inverted block helper returning truthy non-string: stringified like JS',
@@ -821,6 +830,15 @@ class RegressionTest extends TestCase
                 'options' => new Options(knownHelpers: ["it's" => true]),
                 'helpers' => ["it's" => fn(HelperOptions $options) => $options->fn()],
                 'expected' => 'YES',
+            ],
+            [
+                'desc' => 'inverted literal block path routes through blockHelperMissing',
+                'template' => '{{^"foo"}}EMPTY{{/"foo"}}',
+                'data' => ['foo' => false],
+                'helpers' => [
+                    'blockHelperMissing' => fn(mixed $ctx, HelperOptions $opts) => 'BHM:' . $opts->inverse(),
+                ],
+                'expected' => 'BHM:EMPTY',
             ],
 
             [
@@ -1969,6 +1987,14 @@ class RegressionTest extends TestCase
                 'expected' => '0: a, 1: blast!',
             ],
             [
+                'desc' => 'knownHelpersOnly: inverted section skips dispatch to unregistered helpers',
+                'template' => '{{^items}}EMPTY{{/items}}',
+                'options' => new Options(knownHelpersOnly: true),
+                'data' => ['items' => false],
+                'helpers' => ['items' => fn() => 'HELPER_CALLED'],
+                'expected' => 'EMPTY',
+            ],
+            [
                 'desc' => 'knownHelpersOnly: blockHelperMissing is called for inverted sections',
                 'template' => '{{^items}}EMPTY{{/items}}',
                 'options' => new Options(knownHelpersOnly: true),
@@ -1997,6 +2023,16 @@ class RegressionTest extends TestCase
                     ],
                 ],
                 'expected' => 'x:BODY',
+            ],
+            [
+                'desc' => 'lambda at complex path in inverted block is called with no arguments',
+                'template' => '{{^obj.fn}}BODY{{/obj.fn}}',
+                'data' => [
+                    'obj' => [
+                        'fn' => fn(mixed ...$args) => count($args) . ' arguments',
+                    ],
+                ],
+                'expected' => '0 arguments',
             ],
             [
                 'desc' => 'forward block with no else: isset($options->inverse) is true and inverse() returns empty string',

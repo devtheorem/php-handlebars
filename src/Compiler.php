@@ -176,7 +176,7 @@ final class Compiler
             $var = "\$in[$escapedKey] ?? " . $this->missValue($literalKey);
 
             if ($block->program === null) {
-                return $this->compileInvertedSection($block, $var, null);
+                return $this->compileInvertedSection($block, $var, $escapedKey);
             }
 
             return $this->compileSection($block, $var, $escapedKey);
@@ -227,14 +227,11 @@ final class Compiler
 
     private function compileInvertedSection(BlockStatement $block, string $var, ?string $escapedName): string
     {
-        $body = $this->compileProgramOrEmpty($block->inverse);
+        assert($block->inverse !== null);
 
-        if ($escapedName !== null) {
-            $blockFn = self::blockClosure($body, inheritsBp: $this->lastCompileProgramHadDirectBpRef);
-            return self::getRuntimeFunc('isech', "\$cx, $var, \$in, $blockFn, $escapedName");
-        }
-
-        return "(" . self::getRuntimeFunc('isec', $var) . " ? $body : '')";
+        $blockFn = $this->compileProgramWithBlockParams($block->inverse);
+        $name = ($escapedName !== null && !$this->context->options->knownHelpersOnly) ? ", $escapedName" : '';
+        return self::getRuntimeFunc('sec', "\$cx, $var, \$in, null, $blockFn$name");
     }
 
     /** Returns '$blockParams' when inside a block-param scope (for use() capture), '' otherwise. */
@@ -262,6 +259,8 @@ final class Compiler
 
     /**
      * Compile a block program, pushing/popping its block params around the compilation.
+     * Returns a PHP closure string: the signature varies based on whether the program declares or
+     * inherits block params, and a $sc preamble is added when depths are accessed multiple times.
      */
     private function compileProgramWithBlockParams(Program $program): string
     {
@@ -273,7 +272,20 @@ final class Compiler
         if ($bp) {
             array_shift($this->blockParamValues);
         }
-        return self::blockClosure($body, (bool) $bp, $this->lastCompileProgramHadDirectBpRef);
+
+        $declaresBp = (bool) $bp;
+        $inheritsBp = $this->lastCompileProgramHadDirectBpRef;
+        $preamble = '';
+        if (str_contains($body, '$cx->depths[count($cx->depths)-')) {
+            $preamble = '$sc=count($cx->depths);';
+            $body = str_replace('$cx->depths[count($cx->depths)-', '$cx->depths[$sc-', $body);
+        }
+        $sig = match (true) {
+            $declaresBp => "function(\$cx, \$in, array \$blockParams = [])",
+            $inheritsBp => "function(\$cx, \$in) use (\$blockParams)",
+            default => "function(\$cx, \$in)",
+        };
+        return "$sig {{$preamble}return $body;}";
     }
 
     private function compileBlockHelper(BlockStatement $block, string $name): string
@@ -359,7 +371,7 @@ final class Compiler
         $params = $this->compileParams($block->params, $block->hash);
         $blockFn = $block->program !== null
             ? $this->compileProgramWithBlockParams($block->program)
-            : self::blockClosure("''");
+            : 'null';
         $else = $this->compileElseClause($block);
         $outerBp = $this->outerBlockParamsExpr();
         $helperName = self::quote($name);
@@ -903,26 +915,6 @@ final class Compiler
     private static function getRuntimeFunc(string $name, string $args): string
     {
         return "LR::$name($args)";
-    }
-
-    /**
-     * @param bool $declaresBp  true when this closure receives new block param values as its third argument
-     * @param bool $inheritsBp  true when this closure must capture $blockParams from the enclosing scope
-     */
-    private static function blockClosure(string $body, bool $declaresBp = false, bool $inheritsBp = false): string
-    {
-        $preamble = '';
-        if (str_contains($body, '$cx->depths[count($cx->depths)-')) {
-            $preamble = '$sc=count($cx->depths);';
-            $body = str_replace('$cx->depths[count($cx->depths)-', '$cx->depths[$sc-', $body);
-        }
-        // Inherits block params from the enclosing closure's $blockParams variable when $inheritsBp.
-        $sig = match (true) {
-            $declaresBp => "function(\$cx, \$in, array \$blockParams = [])",
-            $inheritsBp => "function(\$cx, \$in) use (\$blockParams)",
-            default => "function(\$cx, \$in)",
-        };
-        return "$sig {{$preamble}return $body;}";
     }
 
     private static function quote(string $string): string

@@ -72,23 +72,16 @@ class HelperOptions
             return '';
         }
         $cx = $this->cx;
-        $scope = $this->scope;
-
         // Save inlinePartials so that any {{#* inline}} partials registered inside the block body
         // don't leak out after fn() returns. The spec requires inline partials to be
         // block-scoped. PHP copy-on-write makes this assignment cheap when no inline partials are registered.
         $savedInlinePartials = $cx->inlinePartials;
-
-        // Skip depths push for explicit same-context pass (equivalent to HBS.js options.fn(this))
-        $skipDepths = $context === $scope;
-        $resolvedContext = $skipDepths ? $scope : ($context === Scope::Use ? $scope : $context);
-        $ret = $this->callBlock($this->cb, $resolvedContext, !$skipDepths, $data);
-
+        $ret = $this->invokeBlock($this->cb, $context, $data);
         $cx->inlinePartials = $savedInlinePartials;
         return $ret;
     }
 
-    public function inverse(mixed $context = null, mixed $data = null): string
+    public function inverse(mixed $context = Scope::Use, mixed $data = null): string
     {
         if ($this->inv === null) {
             if ($this->cb === null) {
@@ -96,13 +89,17 @@ class HelperOptions
             }
             return '';
         }
-        return $this->callBlock($this->inv, $context ?? $this->scope, $context !== null, $data);
+        return $this->invokeBlock($this->inv, $context, $data);
     }
 
-    /** @param array<mixed>|null $data */
-    private function callBlock(\Closure $closure, mixed $context, bool $pushDepths, ?array $data): string
+    private function invokeBlock(\Closure $closure, mixed $context, mixed $data): string
     {
         $cx = $this->cx;
+        $scope = $this->scope;
+        // Skip depths push when the caller explicitly passes the current scope (equivalent to
+        // HBS.js options.fn(this) / options.inverse(this)), since the scope level isn't changing.
+        $pushDepths = $context !== $scope;
+        $resolvedContext = $pushDepths ? ($context === Scope::Use ? $scope : $context) : $scope;
         $savedFrame = null;
         $bpStack = null;
 
@@ -123,9 +120,9 @@ class HelperOptions
         if ($pushDepths) {
             // Push the current scope onto depths so that ../ path expressions inside the block
             // body can traverse back up to the caller's context.
-            $cx->depths[] = $this->scope;
+            $cx->depths[] = $scope;
         }
-        $ret = $closure($cx, $context, $bpStack);
+        $ret = $closure($cx, $resolvedContext, $bpStack);
         if ($pushDepths) {
             array_pop($cx->depths);
         }

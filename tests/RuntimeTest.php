@@ -24,16 +24,6 @@ class RuntimeTest extends TestCase
         $this->assertTrue(Runtime::ifvar(self::createStringable('0')));
     }
 
-    public function testIsec(): void
-    {
-        $this->assertTrue(Runtime::isec(null));
-        $this->assertFalse(Runtime::isec(0));
-        $this->assertTrue(Runtime::isec(false));
-        $this->assertFalse(Runtime::isec('false'));
-        $this->assertTrue(Runtime::isec([]));
-        $this->assertFalse(Runtime::isec(['1']));
-    }
-
     private static function createStringable(string $value): \Stringable
     {
         return new class ($value) implements \Stringable {
