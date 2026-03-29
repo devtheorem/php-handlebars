@@ -112,21 +112,13 @@ final class Runtime
     }
 
     /**
-     * Throw exception for missing expression. Only used in strict mode.
-     */
-    public static function miss(string $v): void
-    {
-        throw new \Exception('"' . $v . '" not defined');
-    }
-
-    /**
      * Strict-mode key lookup: throw if $base is not an array or $key is absent.
      * Unlike the null-coalescing pattern, this allows null values when the key exists.
      */
     public static function strictLookup(mixed $base, string $key, string $original): mixed
     {
         if (!is_array($base) || !array_key_exists($key, $base)) {
-            self::miss($original);
+            throw new \Exception('"' . $original . '" not defined');
         }
         return $base[$key];
     }

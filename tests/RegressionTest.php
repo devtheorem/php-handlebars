@@ -2112,6 +2112,24 @@ class RegressionTest extends TestCase
                 'data' => ['foo' => []],
                 'expected' => '',
             ],
+            'strict mode should not throw for null block param property value' => [
+                'template' => '{{#each items as |item|}}{{item.val}}{{/each}}',
+                'options' => new Options(strict: true),
+                'data' => ['items' => [['val' => null]]],
+                'expected' => '',
+            ],
+            'strict mode should not throw for explicit null value at literal mustache path' => [
+                'template' => '{{"foo"}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => null],
+                'expected' => '',
+            ],
+            'strict mode should not throw for explicit null value at literal block section path' => [
+                'template' => '{{#"foo"}}YES{{/"foo"}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => null],
+                'expected' => '',
+            ],
         ];
     }
 

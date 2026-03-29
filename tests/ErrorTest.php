@@ -187,6 +187,12 @@ class ErrorTest extends TestCase
                 'template' => '{{#each}}OK!{{/each}}',
                 'expected' => 'Must pass iterator to #each',
             ],
+            'assumeObjects mode should throw on null block param intermediate' => [
+                'template' => '{{#each items as |item|}}{{item.nested.val}}{{/each}}',
+                'options' => new Options(assumeObjects: true),
+                'data' => ['items' => [['nested' => null]]],
+                'expected' => 'Cannot access property "val" on null',
+            ],
             'strict mode should throw for missing block param property' => [
                 'template' => '{{#each items as |item|}}{{item.missing}}{{/each}}',
                 'options' => new Options(strict: true),

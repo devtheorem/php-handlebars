@@ -172,7 +172,7 @@ final class Compiler
             }
 
             $escapedKey = self::quote($literalKey);
-            $var = "\$in[$escapedKey] ?? " . $this->missValue($literalKey);
+            $var = $this->compileModeAwareLookup('$in', [$literalKey], $literalKey);
 
             if ($block->program === null) {
                 return $this->compileInvertedSection($block, $var, $escapedKey);
@@ -554,8 +554,7 @@ final class Compiler
             return self::getRuntimeFunc($fn, self::getRuntimeFunc('hv', "\$cx, $escapedKey, \$in"));
         }
 
-        $miss = $this->missValue($literalKey);
-        return self::getRuntimeFunc($fn, "\$in[$escapedKey] ?? $miss");
+        return self::getRuntimeFunc($fn, $this->compileModeAwareLookup('$in', [$literalKey], $literalKey));
     }
 
     // ── Expressions ─────────────────────────────────────────────────
@@ -611,12 +610,10 @@ final class Compiler
         }
 
         $isLength = end($stringParts) === 'length';
-        $varParts = $isLength ? array_slice($stringParts, 0, -1) : $stringParts;
-        $miss = $this->missValue($expression->original);
 
         // Check block params (depth-0, non-data, non-scoped paths only, not SubExpression-headed)
         if (!$hasSubExprHead && !$data && $depth === 0 && !self::scopedId($expression)) {
-            $bp = $this->lookupBlockParam($stringParts[0]);
+            $bp = $this->lookupBlockParam($expression->head);
             if ($bp !== null) {
                 [$bpDepth, $bpIndex] = $bp;
                 $bpBase = "\$blockParams[$bpDepth][$bpIndex]";
@@ -624,12 +621,11 @@ final class Compiler
                 if ($this->bpRefStack) {
                     $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
                 }
-                // Skip the block param name ($varParts[0]) since it has been resolved to a $blockParams index.
-                $parent = $bpBase . self::buildKeyAccess(array_slice($varParts, 1));
-                if ($isLength) {
-                    return $this->buildLookupLength($parent);
-                }
-                return "$parent ?? $miss";
+
+                // Skip the block param name since it has been resolved to a $blockParams index.
+                $keys = $isLength ? array_slice($expression->tail, 0, -1) : $expression->tail;
+                $lookup = $this->compileModeAwareLookup($bpBase, $keys, $expression->original);
+                return $isLength ? $this->buildLookupLength($lookup) : $lookup;
             }
         }
 
@@ -637,12 +633,13 @@ final class Compiler
         // lookupLength() at runtime. This mirrors HBS.js, where .length is a normal property
         // access with no compile-time special casing.
         if ($isLength) {
+            $partsExceptLength = array_slice($stringParts, 0, -1);
             return $this->buildLookupLength(
-                $this->compileModeAwareLookup($base, $varParts, $expression->original, 'null'),
+                $this->compileModeAwareLookup($base, $partsExceptLength, $expression->original),
             );
         }
 
-        return $this->compileModeAwareLookup($base, $stringParts, $expression->original, $miss);
+        return $this->compileModeAwareLookup($base, $stringParts, $expression->original);
     }
 
     /**
@@ -841,9 +838,9 @@ final class Compiler
      * An optional $extraArg is appended to every call's argument list.
      * @param string[] $parts
      */
-    private static function buildCallChain(string $fn, string $base, array $parts, string $extraArg = ''): string
+    private static function buildCallChain(string $fn, string $base, array $parts, ?string $extraArg = null): string
     {
-        $extra = $extraArg !== '' ? ", $extraArg" : '';
+        $extra = $extraArg !== null ? ", $extraArg" : '';
         $expr = $base;
         foreach ($parts as $part) {
             $expr = self::getRuntimeFunc($fn, "$expr, " . self::quote($part) . $extra);
@@ -878,13 +875,6 @@ final class Compiler
         return "'" . addcslashes($string, "'\\") . "'";
     }
 
-    private function missValue(string $key): string
-    {
-        return ($this->context->options->strict && !$this->compilingHelperArgs)
-            ? self::getRuntimeFunc('miss', self::quote($key))
-            : 'null';
-    }
-
     private function compileProgramOrNull(?Program $program): string
     {
         if (!$program) {
@@ -913,7 +903,7 @@ final class Compiler
      * Compile a mode-aware path access expression for the given base and parts.
      * @param string[] $parts
      */
-    private function compileModeAwareLookup(string $base, array $parts, string $original, string $miss): string
+    private function compileModeAwareLookup(string $base, array $parts, string $original): string
     {
         if (!$parts) {
             return $base;
@@ -927,7 +917,7 @@ final class Compiler
         if ($this->context->options->strict) {
             return self::buildCallChain('strictLookup', $base, $parts, self::quote($original));
         }
-        return $base . self::buildKeyAccess($parts) . " ?? $miss";
+        return $base . self::buildKeyAccess($parts) . ' ?? null';
     }
 
     private function throwKnownHelpersOnly(string $helperName): never
