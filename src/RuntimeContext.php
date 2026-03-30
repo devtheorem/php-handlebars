@@ -13,7 +13,6 @@ final class RuntimeContext
      * @param array<string, \Closure> $inlinePartials block-scoped {{#* inline}} partials (reset on fn() return)
      * @param array<mixed> $depths
      * @param array<mixed> $data
-     * @param array<mixed> $frame
      */
     public function __construct(
         public array $helpers = [],
@@ -21,7 +20,6 @@ final class RuntimeContext
         public array $inlinePartials = [],
         public array $depths = [],
         public array $data = [],
-        public array $frame = [],
         public ?\Closure $partialBlock = null,
     ) {}
 }

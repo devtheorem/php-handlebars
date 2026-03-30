@@ -169,30 +169,33 @@ final class Runtime
     public static function createContext(mixed $context, array $options, array $compiledPartials): RuntimeContext
     {
         $parentCx = self::$partialContext;
-        $root = ['root' => $context];
 
         if ($parentCx !== null) {
             // Partial context: reuse the parent's already-merged helpers and partials directly.
-            // PHP copy-on-write ensures inlinePartials is only copied if in() registers a new inline partial.
-            // Inherit the parent's current frame so @index, @key, etc. remain accessible inside partials.
-            // templateClosure will update frame['root'] to reference this partial's own data['root'].
+            // PHP copy-on-write ensures inlinePartials is only copied if the partial registers a new {{#* inline}} partial.
+            // Inherit the parent's current data so @index, @key, etc. remain accessible inside partials.
+            // Unset 'root' first to break the reference established by `$in = &$cx->data['root']` in the
+            // calling template; a direct assignment would write through it and corrupt the caller's $in.
+            $data = $parentCx->data;
+            unset($data['root']);
+            $data['root'] = $context;
             return new RuntimeContext(
                 helpers: $parentCx->helpers,
                 partials: $parentCx->partials,
                 inlinePartials: $parentCx->inlinePartials,
                 depths: $parentCx->depths,
-                data: $root,
-                frame: $parentCx->frame,
+                data: $data,
                 partialBlock: $parentCx->partialBlock,
             );
         }
 
         $data = $options['data'] ?? [];
+        $data['root'] = $data['root'] ?? $context;
+        $extraHelpers = $options['helpers'] ?? [];
         return new RuntimeContext(
-            helpers: array_replace(Runtime::defaultHelpers(), $options['helpers'] ?? []),
+            helpers: $extraHelpers ? array_replace(Runtime::defaultHelpers(), $extraHelpers) : Runtime::defaultHelpers(),
             partials: array_replace($compiledPartials, $options['partials'] ?? []),
-            data: ['root' => $data['root'] ?? $context],
-            frame: $data,
+            data: $data,
         );
     }
 
@@ -251,8 +254,8 @@ final class Runtime
             && $v !== false
             && ($zero || ($v !== 0 && $v !== 0.0))
             && $v !== ''
-            && (!$v instanceof \Stringable || (string) $v !== '')
-            && (!is_array($v) || $v);
+            && (!is_array($v) || $v)
+            && (!$v instanceof \Stringable || (string) $v !== '');
     }
 
     /**
@@ -305,8 +308,9 @@ final class Runtime
      */
     public static function sec(RuntimeContext $cx, mixed $value, mixed $in, ?\Closure $cb, ?\Closure $else = null, ?string $helperName = null): string
     {
-        if ($helperName !== null && isset($cx->helpers[$helperName])) {
-            return static::hbbch($cx, $cx->helpers[$helperName], $helperName, [], [], $in, $cb, $else);
+        $helper = $helperName !== null ? ($cx->helpers[$helperName] ?? null) : null;
+        if ($helper !== null) {
+            return static::hbbch($cx, $helper, $helperName, [], [], $in, $cb, $else);
         }
 
         // Lambda functions in block position: simple-path identifiers ($helperName set) receive
@@ -314,7 +318,7 @@ final class Runtime
         // with no arguments, mirroring HBS.js which does not treat them as helper calls.
         if ($value instanceof \Closure) {
             $result = $helperName !== null
-                ? $value(new HelperOptions(scope: $in, data: $cx->frame, cx: $cx, cb: $cb, inv: $else))
+                ? $value(new HelperOptions(scope: $in, data: $cx->data, cx: $cx, cb: $cb, inv: $else))
                 : $value();
             return static::resolveBlockResult($cx, $result, $in, $cb, $else);
         }
@@ -471,7 +475,7 @@ final class Runtime
         if ($numParams === 0 || $numParams > count($positional)) {
             $positional[] = new HelperOptions(
                 scope: $_this,
-                data: $cx->frame,
+                data: $cx->data,
                 cx: $cx,
                 name: $name,
                 hash: $hash,
@@ -495,7 +499,7 @@ final class Runtime
     {
         $positional[] = new HelperOptions(
             scope: $_this,
-            data: $cx->frame,
+            data: $cx->data,
             cx: $cx,
             name: $name,
             hash: $hash,

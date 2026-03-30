@@ -97,16 +97,12 @@ class HelperOptions
         // HBS.js options.fn(this) / options.inverse(this)), since the scope level isn't changing.
         $pushDepths = $context !== $scope;
         $resolvedContext = $pushDepths ? ($context === Scope::Use ? $scope : $context) : $scope;
-        $savedFrame = null;
+        $outerFrame = null;
         $bpStack = null;
 
         if (isset($data['data'])) {
-            $savedFrame = $cx->frame;
-            // Fast path: only root in frame, no user @-data to inherit
-            $newFrame = count($savedFrame) === 1 ? $data['data'] : array_replace($savedFrame, $data['data']);
-            $newFrame['root'] = &$cx->data['root'];
-            $newFrame['_parent'] = $savedFrame;
-            $cx->frame = $newFrame;
+            $outerFrame = $cx->data;
+            $cx->data = $data['data'];
         }
 
         if (isset($data['blockParams'])) {
@@ -123,8 +119,8 @@ class HelperOptions
         if ($pushDepths) {
             array_pop($cx->depths);
         }
-        if ($savedFrame !== null) {
-            $cx->frame = $savedFrame;
+        if ($outerFrame !== null) {
+            $cx->data = $outerFrame;
         }
         $cx->inlinePartials = $savedInlinePartials;
         return $ret;
@@ -158,28 +154,28 @@ class HelperOptions
         $last = count($items) - 1;
         $ret = '';
         $i = 0;
-        $outerFrame = $cx->frame;
-        // Fast path: when only root is in the frame, skip array_replace.
-        $simpleFrame = count($outerFrame) === 1;
+        $outerFrame = $cx->data;
         // Pre-allocate bpStack once; mutate [0][0] and [0][1] per iteration.
         // PHP COW ensures the inner array's refcount returns to 1 after $cb() returns,
         // so the next iteration's assignment is an in-place mutation, not a copy.
         $bpStack = [[null, null], ...$this->outerBlockParams];
+        $data = Handlebars::createFrame($outerFrame);
+        $data['first'] = true;
 
         foreach ($items as $index => $value) {
-            $iterData = ['key' => $index, 'index' => $i, 'first' => $i === 0, 'last' => $i === $last];
-            $newFrame = $simpleFrame ? $iterData : array_replace($outerFrame, $iterData);
-            $newFrame['root'] = &$cx->data['root'];
-            $newFrame['_parent'] = $outerFrame;
-            $cx->frame = $newFrame;
+            $data['key'] = $index;
+            $data['index'] = $i;
+            $data['last'] = $i === $last;
+            $cx->data = $data;
 
             $bpStack[0][0] = $value;
             $bpStack[0][1] = $index;
             $ret .= $cb($cx, $value, $bpStack);
+            $data['first'] = false;
             $i++;
         }
 
-        $cx->frame = $outerFrame;
+        $cx->data = $outerFrame;
         array_pop($cx->depths);
         $cx->inlinePartials = $savedInlinePartials;
         return $ret;

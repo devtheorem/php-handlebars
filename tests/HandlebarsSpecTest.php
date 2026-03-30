@@ -1,31 +1,15 @@
 <?php
 
+namespace DevTheorem\Handlebars\Test;
+
 use DevTheorem\Handlebars\Handlebars;
 use DevTheorem\Handlebars\Options;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Used by vendor/jbboehr/handlebars-spec/spec/data.json
- */
-class Utils
-{
-    public static function createFrame(mixed $data): mixed
-    {
-        if (is_array($data)) {
-            $r = [];
-            foreach ($data as $k => $v) {
-                $r[$k] = $v;
-            }
-            return $r;
-        }
-        return $data;
-    }
-}
-
-/**
  * @phpstan-type JsonSpec array{
- *     file: string, no: int, message: string|null, data: null|int|bool|string|array<mixed>|stdClass,
+ *     file: string, no: int, message: string|null, data: mixed,
  *     it: string, description: string, expected: string|null, helpers: array<mixed>,
  *     partials: array<mixed>, compileOptions: array<mixed>, template: string,
  *     exception: string|null, runtimeOptions: array<mixed>, number: string|null,
@@ -82,11 +66,7 @@ class HandlebarsSpecTest extends TestCase
             if (!isset($func['php'])) {
                 $this->markTestIncomplete("No PHP helper code provided for [{$spec['file']}#{$spec['description']}]#{$spec['no']}");
             }
-            $helper = self::patchSafeString($func['php']);
-            $helper = str_replace('$options[\'name\']', '$options->name', $helper);
-            $helper = str_replace('$options[\'data\']', '$options->data', $helper);
-            $helper = str_replace('$options[\'hash\']', '$options->hash', $helper);
-            $helper = str_replace('$arguments[count($arguments)-1][\'name\'];', '$arguments[count($arguments)-1]->name;', $helper);
+            $helper = self::patchHelperCode($func['php']);
             $helpersList .= "\n  '$name' => $helper,\n";
             eval('$helpers[\'' . $name . '\'] = ' . $helper . ';');
         }
@@ -182,7 +162,7 @@ class HandlebarsSpecTest extends TestCase
 
         $files = glob('vendor/jbboehr/handlebars-spec/spec/*.json');
         if ($files === false) {
-            throw new Exception("Failed to read JSON spec files");
+            throw new \Exception("Failed to read JSON spec files");
         }
 
         foreach ($files as $file) {
@@ -192,7 +172,7 @@ class HandlebarsSpecTest extends TestCase
             }
             $contents = file_get_contents($file);
             if ($contents === false) {
-                throw new Exception("Failed to read JSON spec file {$file}");
+                throw new \Exception("Failed to read JSON spec file {$file}");
             }
             $i = 0;
             $json = json_decode($contents, true);
@@ -254,10 +234,14 @@ class HandlebarsSpecTest extends TestCase
         }
     }
 
-    private static function patchSafeString(string $code): string
+    private static function patchHelperCode(string $code): string
     {
-        $classname = '\\DevTheorem\\Handlebars\\SafeString';
-        return preg_replace('/ (\\\Handlebars\\\)?SafeString(\s*\(.*?\))?/', ' ' . $classname . '$2', $code)
-            ?? throw new Exception("Failed to patch SafeString in $code");
+        $code = preg_replace('/ (\\\Handlebars\\\)?SafeString(\s*\(.*?\))?/', ' \\DevTheorem\\Handlebars\\SafeString$2', $code)
+            ?? throw new \Exception("Failed to patch SafeString in $code");
+        $code = str_replace('Utils::createFrame(', '\DevTheorem\Handlebars\Handlebars::createFrame(', $code);
+        $code = str_replace('$options[\'name\']', '$options->name', $code);
+        $code = str_replace('$options[\'data\']', '$options->data', $code);
+        $code = str_replace('$options[\'hash\']', '$options->hash', $code);
+        return str_replace('$arguments[count($arguments)-1][\'name\'];', '$arguments[count($arguments)-1]->name;', $code);
     }
 }

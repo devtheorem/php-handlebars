@@ -45,6 +45,20 @@ final class Handlebars
     }
 
     /**
+     * Creates a child @data frame inheriting fields from the given frame.
+     * Use this in block helpers before passing a data array to fn() or inverse(),
+     * equivalent to Handlebars.createFrame() in Handlebars.js.
+     * @param array<mixed> $data
+     * @return array<mixed>
+     */
+    public static function createFrame(array $data): array
+    {
+        $frame = $data;
+        $frame['_parent'] = $data;
+        return $frame;
+    }
+
+    /**
      * HTML escapes the passed string, making it safe for rendering as text within HTML content.
      * The output of all expressions except for triple-braced expressions are passed through this method.
      * Helpers should also use this method when returning HTML content via a SafeString instance,

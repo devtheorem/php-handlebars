@@ -857,6 +857,15 @@ class RegressionTest extends TestCase
                 'helpers' => ['equals' => $equals],
                 'expected' => 'Not equal',
             ],
+
+            'data state when helper does not create child frame should match Handlebars.js' => [
+                'template' => '{{#each foo}}{{#helper}}{{@key}} {{.}} {{@foo}}{{@root.t}}, {{/helper}} {{@key}} {{.}} {{@foo}}{{@root.t}}; {{/each}}',
+                'helpers' => [
+                    'helper' => fn(HelperOptions $options) => $options->fn($options->scope, ['data' => ['foo' => 'bar']]),
+                ],
+                'data' => ['t' => 'val', 'foo' => ['1st', '2nd']],
+                'expected' => ' 1st bar,  0 1st val;  2nd bar,  1 2nd val; ',
+            ],
         ];
     }
 

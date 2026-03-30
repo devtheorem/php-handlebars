@@ -94,8 +94,7 @@ final class Compiler
         $use = $useVars !== '' ? " use ($useVars)" : '';
         return <<<PHP
             function (mixed \$in = null, array \$options = [])$use {
-             \$cx = LR::createContext(\$in, \$options, [$partials]);
-             \$cx->frame['root'] = &\$cx->data['root'];$stmts
+             \$cx = LR::createContext(\$in, \$options, [$partials]);$stmts
              return $code;
             }
             PHP;
@@ -819,7 +818,7 @@ final class Compiler
     private function buildBasePath(bool $data, int $depth): string
     {
         if ($data) {
-            return '$cx->frame' . str_repeat("['_parent']", $depth);
+            return '$cx->data' . str_repeat("['_parent']", $depth);
         }
         return $depth > 0 ? "\$cx->depths[count(\$cx->depths)-$depth]" : '$in';
     }
