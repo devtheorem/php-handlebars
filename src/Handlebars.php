@@ -52,8 +52,14 @@ final class Handlebars
      */
     public static function escapeExpression(string $string): string
     {
-        $search = ['&', '<', '>', '"', "'", '`', '='];
-        $replace = ['&amp;', '&lt;', '&gt;', '&quot;', '&#x27;', '&#x60;', '&#x3D;'];
-        return str_replace($search, $replace, $string);
+        return strtr($string, [
+            '&' => '&amp;',
+            '<' => '&lt;',
+            '>' => '&gt;',
+            '"' => '&quot;',
+            "'" => '&#x27;',
+            '`' => '&#x60;',
+            '=' => '&#x3D;',
+        ]);
     }
 }
