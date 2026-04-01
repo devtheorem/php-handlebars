@@ -1,0 +1,5 @@
+<div class="alert alert-{{type}} {{#if dismissible}}alert-dismissible{{/if}}" role="alert">
+    {{#if icon}}<i class="icon-{{icon}}"></i>{{/if}}
+    {{{message}}}
+    {{#if dismissible}}<button type="button" class="close" data-dismiss="alert">&times;</button>{{/if}}
+</div>
