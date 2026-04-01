@@ -1,0 +1,25 @@
+<aside class="side-panel{{#if collapsible}} collapsible{{#if collapsed}} collapsed{{/if}}{{/if}}" id="panel-{{id}}">
+    <div class="panel-header">
+        <h4>{{title}}</h4>
+        {{#if collapsible}}<button class="toggle" aria-expanded="{{#if collapsed}}false{{else}}true{{/if}}"></button>{{/if}}
+    </div>
+    <div class="panel-body">
+        {{#if (eq type "list")}}
+            <ul>
+                {{#each items}}<li>{{#if url}}<a href="{{url}}">{{/if}}{{label}}{{#if url}}</a>{{/if}}{{#if count}} <span class="count">({{count}})</span>{{/if}}</li>{{/each}}
+            </ul>
+        {{else if (eq type "stats")}}
+            <dl class="stats">
+                {{#each stats}}
+                    <dt>{{label}}</dt>
+                    <dd class="{{#if trend}}trend-{{trend}}{{/if}}">
+                        {{value}}{{#if unit}} {{unit}}{{/if}}
+                        {{#if delta}}<small class="delta">{{#if (gt delta 0)}}+{{/if}}{{delta}}</small>{{/if}}
+                    </dd>
+                {{/each}}
+            </dl>
+        {{else if (eq type "html")}}
+            {{{content}}}
+        {{/if}}
+    </div>
+</aside>
