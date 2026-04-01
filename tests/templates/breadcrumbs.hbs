@@ -1,0 +1,15 @@
+{{#if breadcrumbs}}
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            {{#each breadcrumbs as |crumb idx|}}
+                <li class="breadcrumb-item{{#if @last}} active{{/if}}">
+                    {{#if @last}}
+                        {{crumb.label}}
+                    {{else}}
+                        <a href="{{crumb.url}}">{{crumb.label}}</a>
+                    {{/if}}
+                </li>
+            {{/each}}
+        </ol>
+    </nav>
+{{/if}}

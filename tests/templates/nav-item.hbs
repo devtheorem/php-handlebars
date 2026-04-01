@@ -1,0 +1,14 @@
+<li class="{{#if active}}active{{/if}} {{#if disabled}}disabled{{/if}}">
+    <a href="{{url}}" {{#if newTab}}target="_blank" rel="noopener"{{/if}}>
+        {{#if icon}}<i class="icon-{{icon}}"></i>{{/if}}
+        {{label}}
+        {{#if badge}}<span class="badge">{{badge}}</span>{{/if}}
+    </a>
+    {{#if children}}
+        <ul class="dropdown">
+            {{#each children}}
+                <li><a href="{{url}}">{{label}}</a></li>
+            {{/each}}
+        </ul>
+    {{/if}}
+</li>
