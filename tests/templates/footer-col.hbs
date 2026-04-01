@@ -1,0 +1,8 @@
+<div class="footer-col">
+    {{#if heading}}<h5>{{heading}}</h5>{{/if}}
+    <ul>
+        {{#each links}}
+            <li><a href="{{url}}"{{#if external}} target="_blank" rel="noopener noreferrer"{{/if}}>{{label}}</a></li>
+        {{/each}}
+    </ul>
+</div>
