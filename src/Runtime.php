@@ -341,10 +341,7 @@ final class Runtime
                 return $b;
             } elseif (is_array($a)) {
                 return array_replace($a, $b);
-            } else {
-                if (!is_object($a)) {
-                    $a = new StringObject($a);
-                }
+            } elseif (is_object($a)) {
                 foreach ($b as $i => $v) {
                     $a->$i = $v;
                 }

@@ -710,8 +710,8 @@ final class Compiler
      */
     private function resolvePartial(string $name): ?string
     {
-        if (isset($this->context->partials[$name])) {
-            return $this->context->partials[$name];
+        if (isset($this->context->options->partials[$name])) {
+            return $this->context->options->partials[$name];
         }
         if ($this->context->options->partialResolver) {
             return ($this->context->options->partialResolver)($name);
@@ -737,7 +737,7 @@ final class Compiler
             return;
         }
 
-        foreach ($this->context->partials as $name => $code) {
+        foreach ($this->context->options->partials as $name => $code) {
             $this->resolveAndCompilePartial($name);
         }
     }
