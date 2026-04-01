@@ -1,0 +1,24 @@
+{{#if pagination}}
+    <nav aria-label="{{t "pagination.label"}}">
+        <ul class="pagination {{#if pagination.small}}pagination-sm{{/if}}">
+            <li class="page-item{{#unless pagination.hasPrev}} disabled{{/unless}}">
+                <a class="page-link" href="{{pagination.prevUrl}}">&laquo; {{t "pagination.prev"}}</a>
+            </li>
+            {{#each pagination.pages}}
+                <li class="page-item{{#if active}} active{{/if}}{{#if ellipsis}} disabled{{/if}}">
+                    {{#if ellipsis}}
+                        <span class="page-link">&hellip;</span>
+                    {{else}}
+                        <a class="page-link" href="{{url}}">{{number}}</a>
+                    {{/if}}
+                </li>
+            {{/each}}
+            <li class="page-item{{#unless pagination.hasNext}} disabled{{/unless}}">
+                <a class="page-link" href="{{pagination.nextUrl}}">{{t "pagination.next"}} &raquo;</a>
+            </li>
+        </ul>
+        <p class="pagination-summary">
+            {{t "pagination.showing" start=pagination.start end=pagination.end total=pagination.total}}
+        </p>
+    </nav>
+{{/if}}
