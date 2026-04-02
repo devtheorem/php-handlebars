@@ -4,17 +4,15 @@ namespace DevTheorem\Handlebars;
 
 /**
  * Can be returned from a custom helper to prevent an HTML string from being escaped
- * when the template is rendered. When constructing, any external content should be
- * properly escaped using Handlebars::escapeExpression() to avoid potential security concerns.
+ * when the template is rendered. Because SafeString bypasses the automatic HTML escaping
+ * that {{ }} applies, any user-supplied content embedded in it must first be escaped with
+ * Handlebars::escapeExpression() to prevent XSS vulnerabilities.
  */
-class SafeString implements \Stringable
+final readonly class SafeString implements \Stringable
 {
-    private string $string;
-
-    public function __construct(string $string)
-    {
-        $this->string = $string;
-    }
+    public function __construct(
+        private string $string,
+    ) {}
 
     public function __toString(): string
     {

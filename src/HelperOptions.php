@@ -14,7 +14,7 @@ enum Scope
 /**
  * @phpstan-import-type Template from Handlebars
  */
-class HelperOptions
+final class HelperOptions
 {
     /**
      * @param array<mixed> $data
@@ -46,7 +46,7 @@ class HelperOptions
      * Typically used alongside hasPartial() to implement lazy partial loading.
      * @param Template $partial
      */
-    public function registerPartial(string $name, \Closure $partial): void
+    public function registerPartial(string $name, Closure $partial): void
     {
         $this->cx->partials[$name] = $partial;
     }
@@ -69,6 +69,7 @@ class HelperOptions
             if ($this->inv === null) {
                 throw new \Exception('fn() is not supported for inline helpers');
             }
+            // Occurs when blockHelperMissing routes a truthy context through fn() for an inverted block.
             return '';
         }
         return $this->invokeBlock($this->cb, $context, $data);
@@ -85,7 +86,7 @@ class HelperOptions
         return $this->invokeBlock($this->inv, $context, $data);
     }
 
-    private function invokeBlock(\Closure $closure, mixed $context, mixed $data): string
+    private function invokeBlock(Closure $closure, mixed $context, mixed $data): string
     {
         $cx = $this->cx;
         // Save inlinePartials so that any {{#* inline}} partials registered inside the block body

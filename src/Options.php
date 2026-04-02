@@ -4,7 +4,7 @@ namespace DevTheorem\Handlebars;
 
 use Closure;
 
-readonly class Options
+final readonly class Options
 {
     /** @var array<string, bool> */
     public array $knownHelpers;
@@ -27,6 +27,6 @@ readonly class Options
         public ?Closure $partialResolver = null,
     ) {
         $builtIn = ['if' => true, 'unless' => true, 'each' => true, 'with' => true, 'lookup' => true, 'log' => true];
-        $this->knownHelpers = array_replace($builtIn, $knownHelpers);
+        $this->knownHelpers = $knownHelpers ? array_replace($builtIn, $knownHelpers) : $builtIn;
     }
 }
