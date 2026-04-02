@@ -3,6 +3,7 @@
 namespace DevTheorem\Handlebars;
 
 use Closure;
+use DevTheorem\HandlebarsParser\Parser;
 use DevTheorem\HandlebarsParser\ParserFactory;
 
 /**
@@ -11,6 +12,9 @@ use DevTheorem\HandlebarsParser\ParserFactory;
  */
 final class Handlebars
 {
+    private static ?Parser $parser = null;
+    private static ?Compiler $compiler = null;
+
     /**
      * Compiles a template so it can be executed immediately.
      * @return Template
@@ -25,15 +29,15 @@ final class Handlebars
      */
     public static function precompile(string $template, Options $options = new Options()): string
     {
-        $context = new Context($options);
-        $parser = (new ParserFactory())->create($options->ignoreStandalone);
-        $program = $parser->parse($template);
-        $compiler = new Compiler($parser);
-        $code = $compiler->compile($program, $context);
-        $compiler->handleDynamicPartials();
+        self::$parser ??= (new ParserFactory())->create();
+        self::$compiler ??= new Compiler(self::$parser);
 
-        // return full PHP render code as string
-        return $compiler->composePHPRender($code);
+        $context = new Context($options);
+        $program = self::$parser->parse($template, $options->ignoreStandalone);
+        $code = self::$compiler->compile($program, $context);
+        self::$compiler->handleDynamicPartials();
+
+        return self::$compiler->composePHPRender($code);
     }
 
     /**

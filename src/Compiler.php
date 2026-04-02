@@ -725,7 +725,7 @@ final class Compiler
             return;
         }
 
-        $program = $this->parser->parse($template);
+        $program = $this->parser->parse($template, $this->context->options->ignoreStandalone);
         $code = (new Compiler($this->parser))->compile($program, $this->context);
 
         $this->context->partialCode[$name] = self::quote($name) . ' => ' . self::templateClosure($code);
