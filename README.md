@@ -5,12 +5,12 @@ A blazing fast, spec-compliant PHP implementation of [Handlebars](https://handle
 Originally based on [LightnCandy](https://github.com/zordius/lightncandy), but rewritten to enable
 full Handlebars.js compatibility without excessive feature flags or performance tradeoffs.
 
-PHP Handlebars compiles and executes complex templates up to 40% faster than LightnCandy:
+PHP Handlebars compiles and executes complex templates up to 40% faster than LightnCandy, with 60% lower memory usage:
 
 | Library            | Compile time | Runtime | Total time | Peak memory usage |
 |--------------------|--------------|---------|------------|-------------------|
 | LightnCandy 1.2.6  | 5.2 ms       | 2.8 ms  | 8.0 ms     | 5.3 MB            |
-| PHP Handlebars 1.2 | 3.7 ms       | 1.5 ms  | 5.2 ms     | 3.6 MB            |
+| PHP Handlebars 1.2 | 3.3 ms       | 1.5 ms  | 4.8 ms     | 1.9 MB            |
 
 _Tested on PHP 8.5 with the JIT enabled. See the `benchmark` branch to run the same test._
 
@@ -106,7 +106,7 @@ echo $template(['first' => 'John']); // Error: "last" not defined
 `Handlebars::compile` returns a closure which can be invoked as `$template($context, $options)`.
 The `$options` parameter takes an array of runtime options, accepting the following keys:
 
-* `data`: An associative array of initial `@data` variables (e.g. `['version' => '1.0']` makes `@version` available in the template).
+* `data`: An associative array of custom `@data` variables (e.g. `['version' => '1.0']` makes `@version` available in the template).
 
 * `helpers`: An `array<string, \Closure>` of helpers to merge with the built-in helpers. Can also be used to override a built-in helper by using the same name.
 
@@ -218,8 +218,8 @@ If a custom helper is executed in a `{{ }}` expression, the return value will be
 When a helper is executed in a `{{{ }}}` expression, the original return value will be output directly.
 
 Helpers may return a `DevTheorem\Handlebars\SafeString` instance to prevent escaping the return value.
-When constructing the string that will be marked as safe, any external content should be properly escaped
-using the `Handlebars::escapeExpression()` method to avoid potential security concerns.
+Because `SafeString` bypasses the automatic HTML escaping that `{{ }}` applies, any user-supplied content
+embedded in it must first be escaped with `Handlebars::escapeExpression()` to prevent XSS vulnerabilities.
 
 ## Data Frames
 

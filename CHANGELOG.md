@@ -3,6 +3,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.1] Optimal Simplification - 2026-04-02
+
+### Changed
+- Updated to PHP Handlebars Parser 2.0, which removed unnecessary options state from the parser and made it
+  possible to reuse the same parser instance when compiling multiple templates (e.g. for runtime partials).
+  The PHP Handlebars API hasn't changed, but it now performs better and has significantly lower memory
+  usage when compiling two or more templates.
+- `Options`, `HelperOptions`, and `SafeString` are now `final`, since there's no reason to ever extend them.
+
+### Removed
+- Unnecessary internal `StringObject` class.
+
+
 ## [1.2.0] Data Frames - 2026-03-30
 
 ### Added
@@ -203,6 +216,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[1.2.1]: https://github.com/devtheorem/php-handlebars/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/devtheorem/php-handlebars/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/devtheorem/php-handlebars/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/devtheorem/php-handlebars/compare/v1.0.0...v1.0.1
