@@ -4,13 +4,15 @@ declare(strict_types=1);
 
 namespace DevTheorem\Handlebars;
 
+use Closure;
+
 /**
  * @internal
  * @phpstan-import-type RenderOptions from Handlebars
  */
 final class Runtime
 {
-    /** @var array<string, \Closure>|null */
+    /** @var array<string, Closure>|null */
     private static ?array $defaultHelpers = null;
     /** Parent RuntimeContext during a user-partial invocation, null at top level. */
     private static ?RuntimeContext $partialContext = null;
@@ -19,7 +21,7 @@ final class Runtime
      * Default implementations of the built-in Handlebars helpers.
      * These are pre-registered in every runtime context and can be overridden.
      *
-     * @return array<string, \Closure>
+     * @return array<string, Closure>
      */
     public static function defaultHelpers(): array
     {
@@ -30,7 +32,7 @@ final class Runtime
                 }
                 /** @var HelperOptions $options */
                 $options = $args[1];
-                $condition = $args[0] instanceof \Closure ? $args[0]($options->scope) : $args[0];
+                $condition = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
                 return static::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
                     ? $options->fn($options->scope)
                     : $options->inverse();
@@ -41,7 +43,7 @@ final class Runtime
                 }
                 /** @var HelperOptions $options */
                 $options = $args[1];
-                $condition = $args[0] instanceof \Closure ? $args[0]($options->scope) : $args[0];
+                $condition = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
                 return static::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
                     ? $options->inverse()
                     : $options->fn($options->scope);
@@ -50,7 +52,7 @@ final class Runtime
                 if (!$options) {
                     throw new \Exception('Must pass iterator to #each');
                 }
-                if ($context instanceof \Closure) {
+                if ($context instanceof Closure) {
                     $context = $context($options->scope);
                 }
                 if ($context instanceof \Traversable) {
@@ -66,7 +68,7 @@ final class Runtime
                 }
                 /** @var HelperOptions $options */
                 $options = $args[1];
-                $context = $args[0] instanceof \Closure ? $args[0]($options->scope) : $args[0];
+                $context = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
                 if (static::ifvar($context)) {
                     return $options->fn($context, ['blockParams' => [$context]]);
                 }
@@ -164,7 +166,7 @@ final class Runtime
      * Build a RuntimeContext from raw render options and compile-time partial closures.
      *
      * @param RenderOptions $options
-     * @param array<string, \Closure> $compiledPartials
+     * @param array<string, Closure> $compiledPartials
      */
     public static function createContext(mixed $context, array $options, array $compiledPartials): RuntimeContext
     {
@@ -201,11 +203,12 @@ final class Runtime
 
     /**
      * Invoke $v if it is callable, passing any extra args; otherwise return $v as-is.
-     * Used for data variables that may hold functions (e.g. {{@hello}} or {{@hello "arg"}}).
+     * Used for data variables that may hold functions (e.g. {{@hello}}) and for non-simple
+     * pathed expressions with arguments (e.g. {{./helper "arg"}}).
      */
     public static function dv(mixed $v, mixed ...$args): mixed
     {
-        return $v instanceof \Closure ? $v(...$args) : $v;
+        return $v instanceof Closure ? $v(...$args) : $v;
     }
 
     /**
@@ -219,7 +222,7 @@ final class Runtime
     public static function cv(mixed &$_this, string $name): mixed
     {
         $v = is_array($_this) ? ($_this[$name] ?? null) : null;
-        return $v instanceof \Closure ? $v($_this) : $v;
+        return $v instanceof Closure ? $v($_this) : $v;
     }
 
     /**
@@ -241,18 +244,13 @@ final class Runtime
     }
 
     /**
-     * For {{#if}} and {{#unless}}.
-     *
-     * @param array<array<mixed>|string|int>|string|\Stringable|int|float|bool|null $v value to be tested
-     * @param bool $zero include zero as true
-     *
-     * @return bool Return true when the value is not null nor false.
+     * Returns true or false following the semantics of {{#if}} and {{#unless}} in Handlebars.js.
      */
-    public static function ifvar(mixed $v, bool $zero = false): bool
+    public static function ifvar(mixed $v, bool $includeZero = false): bool
     {
         return $v !== null
             && $v !== false
-            && ($zero || ($v !== 0 && $v !== 0.0))
+            && ($includeZero || ($v !== 0 && $v !== 0.0))
             && $v !== ''
             && (!is_array($v) || $v)
             && (!$v instanceof \Stringable || (string) $v !== '');
@@ -300,13 +298,14 @@ final class Runtime
 
     /**
      * For {{#var}} and {{^var}} sections.
-     * Pass null for $cb when compiling an inverted section ({{^var}}) — blockHelperMissing will call inverse().
+     * Pass null for $cb when compiling an inverted section ({{^var}}): blockHelperMissing routes
+     * truthy contexts through fn() (which returns '' when $cb is null) and falsy contexts through inverse().
      *
      * @param mixed $in input data with current scope
-     * @param \Closure|null $cb callback function to render child context; null for inverted sections
-     * @param \Closure|null $else callback function to render child context when {{else}}
+     * @param Closure|null $cb callback function to render child context; null for inverted sections
+     * @param Closure|null $else callback function to render child context when {{else}}
      */
-    public static function sec(RuntimeContext $cx, mixed $value, mixed $in, ?\Closure $cb, ?\Closure $else = null, ?string $helperName = null): string
+    public static function sec(RuntimeContext $cx, mixed $value, mixed $in, ?Closure $cb, ?Closure $else = null, ?string $helperName = null): string
     {
         $helper = $helperName !== null ? ($cx->helpers[$helperName] ?? null) : null;
         if ($helper !== null) {
@@ -316,7 +315,7 @@ final class Runtime
         // Lambda functions in block position: simple-path identifiers ($helperName set) receive
         // HelperOptions so they can render fn/inverse; complex paths ($helperName null) are called
         // with no arguments, mirroring HBS.js which does not treat them as helper calls.
-        if ($value instanceof \Closure) {
+        if ($value instanceof Closure) {
             $result = $helperName !== null
                 ? $value(new HelperOptions(scope: $in, data: $cx->data, cx: $cx, cb: $cb, inv: $else))
                 : $value();
@@ -328,11 +327,6 @@ final class Runtime
 
     /**
      * Get merged context.
-     *
-     * @param array<array<mixed>|string|int>|object|string|int|null $a the context to be merged
-     * @param array<array<mixed>|string|int|null>|string|int|null $b the new context to overwrite
-     *
-     * @return array<array<mixed>|string|int|null>|object|string|int|null the merged context object
      */
     public static function merge(mixed $a, mixed $b): mixed
     {
@@ -358,7 +352,7 @@ final class Runtime
      * @param array<string, mixed> $hash named hash overrides merged into the context
      * @param string $indent whitespace to prepend to each line of the partial's output
      */
-    public static function p(RuntimeContext $cx, string $name, mixed $context, array $hash, string $indent, ?\Closure $partialBlock = null): string
+    public static function p(RuntimeContext $cx, string $name, mixed $context, array $hash, string $indent, ?Closure $partialBlock = null): string
     {
         // inlinePartials (block-scoped {{#* inline}}) take precedence over partials (persistent),
         // mirroring Handlebars.js which checks options.partials before env.partials.
@@ -415,9 +409,9 @@ final class Runtime
      * For {{#* inline "name"}} and {{#> partial}}fallback{{/partial}} blocks.
      *
      * @param string $name partial name
-     * @param \Closure $partial the compiled partial
+     * @param Closure $partial the compiled partial
      */
-    public static function in(RuntimeContext $cx, string $name, \Closure $partial): string
+    public static function in(RuntimeContext $cx, string $name, Closure $partial): string
     {
         $cx->inlinePartials[$name] = $partial;
         return '';
@@ -435,7 +429,7 @@ final class Runtime
         }
 
         $fn = $_this[$name] ?? null;
-        if ($fn instanceof \Closure) {
+        if ($fn instanceof Closure) {
             return static::hbch($cx, $fn, $name, $positional, $hash, $_this);
         }
 
@@ -448,15 +442,18 @@ final class Runtime
     }
 
     /**
-     * For single known helpers.
+     * Invoke a resolved helper Closure with positional params, hash, and a HelperOptions instance.
+     * Used for known helpers (direct hbch calls from generated code), runtime-registered helpers
+     * (called from hv()), context closures (called from dynhbch()), and built-in fallbacks like
+     * helperMissing/blockHelperMissing.
      *
      * @param array<mixed> $positional
      * @param array<string, mixed> $hash
      * @param mixed $_this current rendering context for the helper
      */
-    public static function hbch(RuntimeContext $cx, \Closure $helper, string $name, array $positional, array $hash, mixed &$_this): mixed
+    public static function hbch(RuntimeContext $cx, Closure $helper, string $name, array $positional, array $hash, mixed &$_this): mixed
     {
-        /** @var \WeakMap<\Closure, int>|null $paramCounts */
+        /** @var \WeakMap<Closure, int>|null $paramCounts */
         static $paramCounts = null;
         $paramCounts ??= new \WeakMap();
 
@@ -488,11 +485,11 @@ final class Runtime
      * @param array<mixed> $positional
      * @param array<string, mixed> $hash
      * @param mixed $_this current rendering context for the helper
-     * @param \Closure|null $cb callback function to render child context (null for inverted blocks)
-     * @param \Closure|null $else callback function to render child context when {{else}}
+     * @param Closure|null $cb callback function to render child context (null for inverted blocks)
+     * @param Closure|null $else callback function to render child context when {{else}}
      * @param array<mixed> $outerBlockParams outer block param stack for block params declared by the template
      */
-    public static function hbbch(RuntimeContext $cx, \Closure $helper, string $name, array $positional, array $hash, mixed &$_this, ?\Closure $cb, ?\Closure $else, int $blockParamCount = 0, array $outerBlockParams = []): string
+    public static function hbbch(RuntimeContext $cx, Closure $helper, string $name, array $positional, array $hash, mixed &$_this, ?Closure $cb, ?Closure $else, int $blockParamCount = 0, array $outerBlockParams = []): string
     {
         $positional[] = new HelperOptions(
             scope: $_this,
@@ -513,18 +510,18 @@ final class Runtime
      * @param array<mixed> $positional
      * @param array<string, mixed> $hash
      * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
-     * @param \Closure $cb callback function to render child context
-     * @param \Closure|null $else callback function to render child context when {{else}}
+     * @param Closure|null $cb callback function to render main block; null for inverted sections with params/hash
+     * @param Closure|null $else callback function to render {{else}}
      * @param array<mixed> $outerBlockParams outer block param stack for block params declared by the template
      */
-    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $positional, array $hash, mixed &$_this, ?\Closure $cb, ?\Closure $else, int $blockParamCount, array $outerBlockParams): mixed
+    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $positional, array $hash, mixed &$_this, ?Closure $cb, ?Closure $else, int $blockParamCount, array $outerBlockParams): mixed
     {
         $helper = $cx->helpers[$name] ?? null;
         if ($helper !== null) {
             return static::hbbch($cx, $helper, $name, $positional, $hash, $_this, $cb, $else, $blockParamCount, $outerBlockParams);
         }
 
-        if (!$callable instanceof \Closure) {
+        if (!$callable instanceof Closure) {
             return static::hbbch($cx, $cx->helpers['helperMissing'], $name, $positional, $hash, $_this, $cb, $else, $blockParamCount, $outerBlockParams);
         }
 
@@ -535,7 +532,7 @@ final class Runtime
      * Resolve the return value of a block helper call:
      * pass through string/SafeString, stringify arrays, or delegate non-string values to blockHelperMissing.
      */
-    private static function resolveBlockResult(RuntimeContext $cx, mixed $result, mixed $_this, ?\Closure $cb, ?\Closure $else): string
+    private static function resolveBlockResult(RuntimeContext $cx, mixed $result, mixed $_this, ?Closure $cb, ?Closure $else): string
     {
         if (is_string($result) || $result instanceof SafeString) {
             return (string) $result;

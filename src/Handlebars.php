@@ -2,11 +2,12 @@
 
 namespace DevTheorem\Handlebars;
 
+use Closure;
 use DevTheorem\HandlebarsParser\ParserFactory;
 
 /**
- * @phpstan-type RenderOptions array{data?: array<mixed>, helpers?: array<string, \Closure>, partials?: array<string, \Closure>}
- * @phpstan-type Template \Closure(mixed=, RenderOptions=): string
+ * @phpstan-type RenderOptions array{data?: array<mixed>, helpers?: array<string, Closure>, partials?: array<string, Closure>}
+ * @phpstan-type Template Closure(mixed=, RenderOptions=): string
  */
 final class Handlebars
 {
@@ -14,7 +15,7 @@ final class Handlebars
      * Compiles a template so it can be executed immediately.
      * @return Template
      */
-    public static function compile(string $template, Options $options = new Options()): \Closure
+    public static function compile(string $template, Options $options = new Options()): Closure
     {
         return self::template(self::precompile($template, $options));
     }
@@ -39,7 +40,7 @@ final class Handlebars
      * Sets up a template that was precompiled with precompile().
      * @return Template
      */
-    public static function template(string $templateSpec): \Closure
+    public static function template(string $templateSpec): Closure
     {
         return eval($templateSpec);
     }
