@@ -2039,6 +2039,16 @@ class RegressionTest extends TestCase
                 'data' => ['flag' => true, 'name' => 'outer'],
                 'expected' => '',
             ],
+
+            '#16 - access array items with numeric keys' => [
+                'template' => "0: {{this.0.title}}\n1: {{this.1.title}}\n2: {{this.2.title}}",
+                'data' => [
+                    ['title' => 'Page A'],
+                    ['title' => 'Page B'],
+                    ['title' => 'Page C'],
+                ],
+                'expected' => "0: Page A\n1: Page B\n2: Page C",
+            ],
         ];
     }
 
