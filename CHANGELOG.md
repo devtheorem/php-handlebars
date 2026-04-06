@@ -3,6 +3,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.2] Faithful Dispatch - 2026-04-05
+
+### Changed
+- Better aligned compiler and runtime structure with Handlebars.js,
+  fixing numerous edge cases related to helpers and `@data` variables.
+
+### Fixed
+- `../` expressions inside `{{else}}` blocks of `{{#if}}`, `{{#unless}}`, `{{#with}}`, and sections invoking `blockHelperMissing` resolved to the wrong context level.
+- A missing helper called via multi-segment path in a subexpression or `@data` variable failed to invoke `helperMissing`.
+- A non-function context property used as a helper (e.g. `{{foo "arg"}}` where `foo` is not a closure) incorrectly called `helperMissing` rather than throwing a distinct error.
+- No error thrown when calling a missing helper via a multi-segment path with arguments (e.g. `{{foo.bar "arg"}}`).
+- Closures in context data could not be used as block helpers (e.g. `{{#fn}}...{{/fn}}` where `fn` is a closure).
+- Closures in context data or `@data` variables failed to be passed `HelperOptions` as the last argument in certain cases.
+- Templates with hash arguments on complex paths (e.g. `{{foo.bar arg=val}}`) were not compiled correctly.
+- Closures in context data were not invoked when accessed via a multi-segment path (e.g. `{{foo.bar}}`), or via a literal path (e.g. `{{"foo"}}`) in `knownHelpersOnly` mode.
+- `@data` variables incorrectly took priority over helpers with the same name.
+- `knownHelpersOnly` was not enforced for `@data` expressions or complex paths used with arguments.
+
+
 ## [1.2.1] Optimal Simplification - 2026-04-02
 
 ### Changed
@@ -216,6 +235,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[1.2.2]: https://github.com/devtheorem/php-handlebars/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/devtheorem/php-handlebars/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/devtheorem/php-handlebars/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/devtheorem/php-handlebars/compare/v1.0.1...v1.1.0

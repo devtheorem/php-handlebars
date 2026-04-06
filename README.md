@@ -10,7 +10,7 @@ PHP Handlebars compiles and executes complex templates up to 40% faster than Lig
 | Library            | Compile time | Runtime | Total time | Peak memory usage |
 |--------------------|--------------|---------|------------|-------------------|
 | LightnCandy 1.2.6  | 5.2 ms       | 2.8 ms  | 8.0 ms     | 5.3 MB            |
-| PHP Handlebars 1.2 | 3.3 ms       | 1.5 ms  | 4.8 ms     | 1.9 MB            |
+| PHP Handlebars 1.2 | 3.2 ms       | 1.5 ms  | 4.7 ms     | 1.9 MB            |
 
 _Tested on PHP 8.5 with the JIT enabled. See the `benchmark` branch to run the same test._
 
@@ -162,10 +162,10 @@ echo $template(['my_var' => null], $runtimeOptions); // Not equal
 
 * `fn(mixed $context = <current scope>, mixed $data = null): string`: Renders the block body.
   Pass a new context as `$context` to change what the block renders against (equivalent to `options.fn(newContext)` in JS).
-  Pass a `$data` array with a `'data'` key to inject additional `@`-prefixed variables into the block,
+  Pass a `$data` array with a `'data'` key to inject `@`-prefixed variables into the block,
   and/or a `'blockParams'` key containing an array of values to expose as block parameters.
 
-* `inverse(mixed $context = null, mixed $data = null): string`: Renders the `{{else}}` / inverse block.
+* `inverse(mixed $context = <current scope>, mixed $data = null): string`: Renders the `{{else}}` / inverse block.
   Returns an empty string if no inverse block was provided.
   Accepts the same optional `$context` and `$data` arguments as `fn()`.
 
