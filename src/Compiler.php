@@ -23,6 +23,14 @@ use DevTheorem\HandlebarsParser\Ast\SubExpression;
 use DevTheorem\HandlebarsParser\Ast\UndefinedLiteral;
 use DevTheorem\HandlebarsParser\Parser;
 
+/** @internal */
+enum SexprType
+{
+    case Helper;
+    case Ambiguous;
+    case Simple;
+}
+
 /**
  * @internal
  */
@@ -147,54 +155,52 @@ final class Compiler
 
     private function BlockStatement(BlockStatement $block): string
     {
+        // getSimpleHelperName returns the key name for both Literal paths and simple PathExpressions,
+        // null for complex paths (multi-segment, scoped, data, depth). This mirrors HBS.js
+        // transformLiteralToPath: literals are treated as single-part path lookups throughout.
         $helperName = $this->getSimpleHelperName($block->path);
+        $type = $this->classifySexpr($helperName, $block->params, $block->hash);
+        // Logical name for runtime dispatch: literal-normalized (strips source quoting).
+        // e.g. {{#"foo bar"}} → 'foo bar', not '"foo bar"'. Falls back to path->original for complex paths.
+        $name = $helperName ?? (string) $block->path->original;
 
-        if ($helperName !== null) {
-            if ($this->isKnownHelper($helperName)) {
+        if ($type === SexprType::Helper) {
+            if ($helperName !== null && $this->isKnownHelper($helperName)) {
                 return $this->compileBlockHelper($block, $helperName);
             }
+            if ($this->context->options->knownHelpersOnly) {
+                $this->throwKnownHelpersOnly($name);
+            }
+            // Simple/Literal path: look up the key in context. Complex path: compile the full expression.
+            $var = $helperName !== null
+                ? $this->compileModeAwareLookup('$in', [$helperName], $helperName)
+                : $this->compileExpression($block->path);
+            return $this->compileDynamicBlockHelper($block, $name, $var);
+        }
 
-            if ($block->params || $block->hash !== null) {
-                if ($this->context->options->knownHelpersOnly) {
-                    $this->throwKnownHelpersOnly($helperName);
-                }
-                return $this->compileDynamicBlockHelper($block, $helperName);
+        $var = $helperName !== null
+            ? $this->compileModeAwareLookup('$in', [$helperName], $helperName)
+            : $this->compileExpression($block->path);
+        $escapedName = self::quote($name);
+
+        $inverted = $block->program === null;
+        $fnProgram = $block->program ?? $block->inverse ?? throw new \LogicException('Inverted section must have an inverse program');
+        $blockFn = $this->compileProgramWithBlockParams($fnProgram);
+        $fn = $inverted ? 'null' : $blockFn;
+        $else = $inverted ? $blockFn : $this->compileProgramOrNull($block->inverse);
+
+        if (!$inverted && !$this->context->options->knownHelpersOnly) {
+            $bp = $block->program->blockParams;
+            if ($block->hash !== null || $bp) {
+                $params = $this->compileParams([], $block->hash);
+                $outerBp = $this->outerBlockParamsExpr();
+                $helperExpr = self::getRuntimeFunc('resolveHelper', "\$cx, $escapedName, $var, true");
+                return self::buildHbbchCall($helperExpr, $escapedName, $params, $blockFn, $else, count($bp), $outerBp);
             }
         }
 
-        // Handle literal path in block position (e.g. {{#"foo"}}, {{#12}}, {{#true}})
-        if ($block->path instanceof Literal) {
-            $literalKey = $this->getLiteralKeyName($block->path);
-
-            if ($this->isKnownHelper($literalKey)) {
-                return $this->compileBlockHelper($block, $literalKey);
-            }
-
-            $escapedKey = self::quote($literalKey);
-            $var = $this->compileModeAwareLookup('$in', [$literalKey], $literalKey);
-
-            if ($block->program === null) {
-                return $this->compileInvertedSection($block, $var, $escapedKey);
-            }
-
-            return $this->compileSection($block, $var, $escapedKey);
-        }
-
-        $var = $this->compileExpression($block->path);
-
-        // Inverted section: {{^var}}...{{/var}}
-        if ($block->program === null) {
-            $escapedName = $helperName !== null ? self::quote($helperName) : null;
-            return $this->compileInvertedSection($block, $var, $escapedName);
-        }
-
-        // Non-simple path with params: invoke as a dynamic block helper call
-        if ($block->params) {
-            return $this->compileDynamicBlockHelper($block, (string) $block->path->original, $var);
-        }
-
-        // Regular section: {{#var}}...{{/var}}
-        return $this->compileSection($block, $var, self::quote($block->path->original));
+        $nameArg = !$this->context->options->knownHelpersOnly && (!$inverted || $type === SexprType::Ambiguous) ? ", $escapedName" : '';
+        return self::getRuntimeFunc('sec', "\$cx, $var, \$in, $fn, $else$nameArg");
     }
 
     private function isKnownHelper(string $helperName): bool
@@ -202,34 +208,28 @@ final class Compiler
         return $this->context->options->knownHelpers[$helperName] ?? false;
     }
 
-    private function compileSection(BlockStatement $block, string $var, string $escapedName): string
+    /**
+     * Classify a sexpr like HBS.js classifySexpr(), given the pre-computed simple name.
+     * - Helper: definitely a helper call (has params/hash, or is a known helper)
+     * - Ambiguous: bare simple name that could be a helper or context value at runtime
+     * - Simple: complex/scoped/data/depth path, or block param; always a context lookup
+     * @param Expression[] $params
+     */
+    private function classifySexpr(?string $simpleName, array $params, ?Hash $hash): SexprType
     {
-        assert($block->program !== null);
-
-        $blockFn = $this->compileProgramWithBlockParams($block->program);
-        $else = $this->compileProgramOrNull($block->inverse);
-
-        if ($this->context->options->knownHelpersOnly) {
-            return self::getRuntimeFunc('sec', "\$cx, $var, \$in, $blockFn, $else");
+        if ($simpleName !== null && $this->lookupBlockParam($simpleName) !== null) {
+            return SexprType::Simple;
         }
-
-        $bp = $block->program->blockParams;
-        if ($block->hash !== null || $bp) {
-            $params = $this->compileParams([], $block->hash);
-            $outerBp = $this->outerBlockParamsExpr();
-            return self::getRuntimeFunc('dynhbbch', "\$cx, $escapedName, $var, $params, \$in, $blockFn, $else, " . count($bp) . ", $outerBp");
+        if ($simpleName !== null && $this->isKnownHelper($simpleName)) {
+            return SexprType::Helper;
         }
-
-        return self::getRuntimeFunc('sec', "\$cx, $var, \$in, $blockFn, $else, $escapedName");
-    }
-
-    private function compileInvertedSection(BlockStatement $block, string $var, ?string $escapedName): string
-    {
-        assert($block->inverse !== null);
-
-        $blockFn = $this->compileProgramWithBlockParams($block->inverse);
-        $name = ($escapedName !== null && !$this->context->options->knownHelpersOnly) ? ", $escapedName" : '';
-        return self::getRuntimeFunc('sec', "\$cx, $var, \$in, null, $blockFn$name");
+        if ($params || $hash !== null) {
+            return SexprType::Helper;
+        }
+        if ($simpleName !== null) {
+            return SexprType::Ambiguous;
+        }
+        return SexprType::Simple;
     }
 
     /** Returns '$blockParams' when inside a block-param scope (for use() capture), '' otherwise. */
@@ -293,7 +293,7 @@ final class Compiler
         $fnProgram = $block->program ?? $block->inverse;
         assert($fnProgram !== null);
 
-        // Inline if/unless as ternary — eliminates hbbch dispatch and HelperOptions allocation.
+        // Inline if/unless as ternary — eliminates helper dispatch and HelperOptions allocation.
         // Safe because if/unless don't change scope, so $cx and $in are already correct.
         // Negate for 'unless' in a normal block, or 'if' in an inverted block (swapped semantics).
         if ($this->canInlineConditional($block, $name, $fnProgram->blockParams)) {
@@ -318,8 +318,7 @@ final class Compiler
         $helperName = self::quote($name);
         $bpCount = count($fnProgram->blockParams);
 
-        $trailingArgs = ($bpCount > 0 || $outerBp !== '[]') ? ", $bpCount, $outerBp" : '';
-        return self::getRuntimeFunc('hbbch', "\$cx, \$cx->helpers[$helperName], $helperName, $params, \$in, $fn, $else$trailingArgs");
+        return self::buildHbbchCall("\$cx->helpers[$helperName]", $helperName, $params, $fn, $else, $bpCount, $outerBp);
     }
 
     /**
@@ -366,7 +365,7 @@ final class Compiler
         return $negate ? "!$cond" : $cond;
     }
 
-    private function compileDynamicBlockHelper(BlockStatement $block, string $name, string $varPath = 'null'): string
+    private function compileDynamicBlockHelper(BlockStatement $block, string $name, string $varPath): string
     {
         $bp = $block->program->blockParams ?? [];
         $params = $this->compileParams($block->params, $block->hash);
@@ -376,7 +375,8 @@ final class Compiler
         $else = $this->compileProgramOrNull($block->inverse);
         $outerBp = $this->outerBlockParamsExpr();
         $helperName = self::quote($name);
-        return self::getRuntimeFunc('dynhbbch', "\$cx, $helperName, $varPath, $params, \$in, $blockFn, $else, " . count($bp) . ", $outerBp");
+        $helperExpr = self::getRuntimeFunc('resolveHelper', "\$cx, $helperName, $varPath, true");
+        return self::buildHbbchCall($helperExpr, $helperName, $params, $blockFn, $else, count($bp), $outerBp);
     }
 
     private function DecoratorBlock(BlockStatement $block): string
@@ -497,62 +497,41 @@ final class Compiler
         $fn = $raw ? 'raw' : 'encq';
         $path = $mustache->path;
 
-        if ($path instanceof PathExpression) {
-            $helperName = $this->getSimpleHelperName($path);
-
-            if ($helperName !== null && ($this->isKnownHelper($helperName) || $mustache->params || $mustache->hash !== null)) {
-                $call = $this->buildInlineHelperCall($helperName, $mustache->params, $mustache->hash);
-                return self::getRuntimeFunc($fn, $call);
-            }
-
-            if ($mustache->params || $mustache->hash !== null) {
-                // Non-simple path with params (data var or pathed expression): invoke via dv()
-                $varPath = $this->PathExpression($path);
-                $args = array_map(fn($p) => $this->compileExpression($p), $mustache->params);
-                $call = self::getRuntimeFunc('dv', "$varPath, " . implode(', ', $args));
-                return self::getRuntimeFunc($fn, $call);
-            }
-
-            // When not strict/assumeObjects, check runtime helpers for bare identifiers.
-            if ($helperName !== null && !$this->context->options->strict && !$this->context->options->assumeObjects
-                && $this->lookupBlockParam($helperName) === null) {
-                $escapedKey = self::quote($helperName);
-                if ($this->context->options->knownHelpersOnly) {
-                    return self::getRuntimeFunc($fn, self::getRuntimeFunc('cv', "\$in, $escapedKey"));
-                }
-                return self::getRuntimeFunc($fn, self::getRuntimeFunc('hv', "\$cx, $escapedKey, \$in"));
-            }
-
-            // Plain variable. Data variables (@foo) may be closures, so wrap in dv() to invoke
-            // them. Context variables (e.g. user.name) are never closures per the spec — all
-            // lambda tests use single-segment identifiers which go through hv()/cv() — and
-            // dv() doesn't pass context to them anyway, so skip it.
-            $varPath = $this->PathExpression($path);
-            if (!$path->data) {
-                return self::getRuntimeFunc($fn, $varPath);
-            }
-            return self::getRuntimeFunc($fn, self::getRuntimeFunc('dv', $varPath));
-        }
-
-        // SubExpression path: {{(path args)}} — compile and render the sub-expression result
+        // SubExpression path: {{(path args)}} — always a direct helper call result
         if ($path instanceof SubExpression) {
             return self::getRuntimeFunc($fn, $this->SubExpression($path));
         }
 
-        // Literal path — treat as named context lookup or helper call
-        $literalKey = $this->getLiteralKeyName($path);
+        // PathExpression or Literal: getSimpleHelperName returns the key for both,
+        // null only for complex paths (multi-segment, scoped, data, depth).
+        $helperName = $this->getSimpleHelperName($path);
+        $type = $this->classifySexpr($helperName, $mustache->params, $mustache->hash);
 
-        if ($this->isKnownHelper($literalKey) || $mustache->params || $mustache->hash !== null) {
-            $call = $this->buildInlineHelperCall($literalKey, $mustache->params, $mustache->hash);
+        if ($type === SexprType::Helper) {
+            $call = $this->compileHelperCall($helperName, $path, $mustache->params, $mustache->hash);
             return self::getRuntimeFunc($fn, $call);
         }
 
-        $escapedKey = self::quote($literalKey);
-
-        if (!$this->context->options->strict && !$this->context->options->knownHelpersOnly) {
-            return self::getRuntimeFunc($fn, self::getRuntimeFunc('hv', "\$cx, $escapedKey, \$in"));
+        if ($helperName !== null && $type === SexprType::Ambiguous && !$this->context->options->strict) {
+            $escapedKey = self::quote($helperName);
+            $isData = $path instanceof PathExpression && $path->data;
+            if ($this->context->options->knownHelpersOnly) {
+                $lookup = $isData ? "\$cx->data[$escapedKey] ?? null" : self::getRuntimeFunc('cv', "\$in, $escapedKey");
+                return self::getRuntimeFunc($fn, $lookup);
+            }
+            $scope = $isData ? '$cx->data' : '$in';
+            $hvArgs = "\$cx, $escapedKey, $scope" . ($this->context->options->assumeObjects ? ', true' : '');
+            return self::getRuntimeFunc($fn, self::getRuntimeFunc('hv', $hvArgs));
         }
 
+        // Simple: direct path lookup
+        if ($path instanceof PathExpression) {
+            return self::getRuntimeFunc($fn, self::getRuntimeFunc('dv', $this->PathExpression($path)));
+        }
+
+        // Literal in simple/fallthrough position (strict, assumeObjects, or knownHelpersOnly):
+        // compile as a direct context lookup using the normalized key name.
+        $literalKey = $this->getLiteralKeyName($path);
         return self::getRuntimeFunc($fn, $this->compileModeAwareLookup('$in', [$literalKey], $literalKey));
     }
 
@@ -561,23 +540,11 @@ final class Compiler
     private function SubExpression(SubExpression $expression): string
     {
         $path = $expression->path;
-        $helperName = match (true) {
-            $path instanceof Literal => $this->getLiteralKeyName($path),
-            $path instanceof PathExpression => $this->getSimpleHelperName($path),
-            default => null,
-        };
+        $helperName = ($path instanceof PathExpression || $path instanceof Literal)
+            ? $this->getSimpleHelperName($path)
+            : null;
 
-        if ($helperName === null) {
-            // Dynamic callable: path rooted at a sub-expression, e.g. ((helper).prop args)
-            if ($path instanceof PathExpression) {
-                $varPath = $this->PathExpression($path);
-                $args = array_map(fn($p) => $this->compileExpression($p), $expression->params);
-                return self::getRuntimeFunc('dv', implode(', ', [$varPath, ...$args]));
-            }
-            throw new \Exception('Sub-expression must be a helper call');
-        }
-
-        return $this->buildInlineHelperCall($helperName, $expression->params, $expression->hash);
+        return $this->compileHelperCall($helperName, $path, $expression->params, $expression->hash);
     }
 
     private function PathExpression(PathExpression $expression): string
@@ -795,13 +762,17 @@ final class Compiler
     }
 
     /**
-     * Extract simple helper name from a path if it's a single-segment, non-data, depth-0 path.
+     * Extract simple helper name from a path.
+     * For Literal paths (e.g. {{#"foo bar"}}, {{#12}}), returns the stringified key name.
+     * For PathExpression, returns the single part only if depth-0, non-data, non-scoped, single-segment.
+     * Returns null for complex paths (multi-segment, scoped, data, depth > 0).
      */
     private function getSimpleHelperName(PathExpression|Literal $path): ?string
     {
-        if (!$path instanceof PathExpression
-            || $path->data
-            || $path->depth > 0
+        if ($path instanceof Literal) {
+            return $this->getLiteralKeyName($path);
+        }
+        if ($path->depth > 0
             || self::scopedId($path)
             || count($path->parts) !== 1
             || !is_string($path->parts[0])
@@ -859,6 +830,56 @@ final class Compiler
             $n .= '[' . self::quote($part) . ']';
         }
         return $n;
+    }
+
+    /**
+     * Build an hbbch call with the given helper expression.
+     * Trailing bpCount/outerBp args are omitted when both are zero/empty.
+     */
+    private static function buildHbbchCall(string $helperExpr, string $escapedName, string $params, string $blockFn, string $else, int $bpCount, string $outerBp): string
+    {
+        $trailingArgs = ($bpCount > 0 || $outerBp !== '[]') ? ", $bpCount, $outerBp" : '';
+        return self::getRuntimeFunc('hbbch', "\$cx, $helperExpr, $escapedName, $params, \$in, $blockFn, $else$trailingArgs");
+    }
+
+    /**
+     * Compile a helper call for a MustacheStatement (Helper type) or SubExpression.
+     * @param Expression[] $params
+     */
+    private function compileHelperCall(?string $helperName, Expression $path, array $params, ?Hash $hash): string
+    {
+        $compiledParams = $this->compileParams($params, $hash);
+
+        if ($helperName !== null) {
+            $escapedName = self::quote($helperName);
+            $isData = $path instanceof PathExpression && $path->data;
+            if ($this->isKnownHelper($helperName)) {
+                return self::getRuntimeFunc('hbch', "\$cx, \$cx->helpers[$escapedName], $escapedName, $compiledParams, \$in");
+            }
+            if ($this->context->options->knownHelpersOnly) {
+                $this->throwKnownHelpersOnly($helperName);
+            }
+            $varPath = $isData ? "\$cx->data[$escapedName] ?? null" : "\$in[$escapedName] ?? null";
+            $checkHelpers = 'true';
+        } elseif ($path instanceof PathExpression) {
+            $varPath = $this->PathExpression($path);
+            $stringParts = array_filter($path->parts, 'is_string');
+            if (count($stringParts) === count($path->parts)) {
+                // All-string parts (foo.bar, ../fn, ./fn, @fn): scoped/depth/data paths resolve
+                // from context only; normal paths check the helpers hash first via resolveHelper.
+                $escapedName = self::quote($path->original);
+                $checkHelpers = (!$path->data && $path->depth === 0 && !self::scopedId($path)) ? 'true' : 'false';
+            } else {
+                // SubExpression-headed path (e.g. ((helper).prop args)): context-only resolution.
+                $escapedName = self::quote(implode('.', $stringParts));
+                $checkHelpers = 'false';
+            }
+        } else {
+            throw new \Exception('Sub-expression must be a helper call');
+        }
+
+        $resolved = self::getRuntimeFunc('resolveHelper', "\$cx, $escapedName, $varPath, $checkHelpers");
+        return self::getRuntimeFunc('hbch', "\$cx, $resolved, $escapedName, $compiledParams, \$in");
     }
 
     /**
@@ -922,22 +943,5 @@ final class Compiler
     private function throwKnownHelpersOnly(string $helperName): never
     {
         throw new \Exception("You specified knownHelpersOnly, but used the unknown helper $helperName");
-    }
-
-    /**
-     * Build an hbch (known) or dynhbch (unknown) inline helper call string.
-     * @param Expression[] $params
-     */
-    private function buildInlineHelperCall(string $name, array $params, ?Hash $hash): string
-    {
-        $compiledParams = $this->compileParams($params, $hash);
-        $helperName = self::quote($name);
-        if ($this->isKnownHelper($name)) {
-            return self::getRuntimeFunc('hbch', "\$cx, \$cx->helpers[$helperName], $helperName, $compiledParams, \$in");
-        }
-        if ($this->context->options->knownHelpersOnly) {
-            $this->throwKnownHelpersOnly($name);
-        }
-        return self::getRuntimeFunc('dynhbch', "\$cx, $helperName, $compiledParams, \$in");
     }
 }

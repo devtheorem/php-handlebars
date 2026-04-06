@@ -13,6 +13,7 @@ use PHPUnit\Framework\TestCase;
  * @phpstan-type RegIssue array{
  *     template: string, expected: string, data?: mixed, options?: Options,
  *     helpers?: array<string, \Closure>, runtimePartials?: array<string, string>,
+ *     vars?: array<mixed>,
  * }
  */
 class RegressionTest extends TestCase
@@ -45,6 +46,7 @@ class RegressionTest extends TestCase
     /**
      * @param array<string, \Closure> $helpers
      * @param array<string, string> $runtimePartials
+     * @param array<mixed> $vars
      */
     #[DataProvider("helperProvider")]
     #[DataProvider("partialProvider")]
@@ -63,6 +65,7 @@ class RegressionTest extends TestCase
     #[DataProvider("missingDataProvider")]
     #[DataProvider("syntaxProvider")]
     #[DataProvider("subexpressionPathProvider")]
+    #[DataProvider("literalPathProvider")]
     public function testIssues(
         string $template,
         string $expected,
@@ -70,13 +73,14 @@ class RegressionTest extends TestCase
         ?Options $options = null,
         array $helpers = [],
         array $runtimePartials = [],
+        array $vars = [],
     ): void {
         $templateSpec = Handlebars::precompile($template, $options ?? new Options());
 
         try {
             $template = Handlebars::template($templateSpec);
             $compiledPartials = array_map(fn($p) => Handlebars::compile($p), $runtimePartials);
-            $result = $template($data, ['helpers' => $helpers, 'partials' => $compiledPartials]);
+            $result = $template($data, ['helpers' => $helpers, 'partials' => $compiledPartials, 'data' => $vars]);
         } catch (\Throwable $e) {
             $this->fail("Error: {$e->getMessage()}\nPHP code:\n$templateSpec");
         }
@@ -479,6 +483,25 @@ class RegressionTest extends TestCase
                     Helper 'foo' not found. Printing block: Bar
                     Helper 'person' not found. Printing block: Yehuda Katz
                     _result,
+            ],
+
+            'helperMissing should be called for missing data variable' => [
+                'template' => '{{@foo}}',
+                'helpers' => [
+                    'helperMissing' => fn(HelperOptions $options) => "missing:{$options->name}",
+                ],
+                'expected' => 'missing:foo',
+            ],
+
+            'helperMissing should not be called when the identifier is a context property' => [
+                'template' => '{{foo "Hello"}}',
+                'data' => [
+                    'foo' => fn($arg, HelperOptions $options) => "context {$options->name}($arg)",
+                ],
+                'helpers' => [
+                    'helperMissing' => fn($arg) => "$arg helperMissing",
+                ],
+                'expected' => 'context foo(Hello)',
             ],
 
             'LNC#201 - resolve missing helpers' => [
@@ -1959,6 +1982,15 @@ class RegressionTest extends TestCase
                 ],
                 'expected' => 'x:BODY',
             ],
+            'complex path with hash passes hash to closure via HelperOptions' => [
+                'template' => '{{#obj.fn prop="x"}}BODY{{/obj.fn}}',
+                'data' => [
+                    'obj' => [
+                        'fn' => fn(HelperOptions $options) => $options->hash['prop'] . ':' . $options->fn(),
+                    ],
+                ],
+                'expected' => 'x:BODY',
+            ],
             'lambda at complex path in inverted block is called with no arguments' => [
                 'template' => '{{^obj.fn}}BODY{{/obj.fn}}',
                 'data' => [
@@ -2110,10 +2142,31 @@ class RegressionTest extends TestCase
     public static function dataClosuresProvider(): array
     {
         return [
-            'data can contain closures' => [
+            'closure at simple path is invoked with HelperOptions' => [
                 'template' => '{{foo}}',
-                'data' => ['foo' => fn() => 'OK'],
-                'expected' => 'OK',
+                'data' => ['foo' => fn(HelperOptions $options) => "{$options->name}: OK"],
+                'expected' => 'foo: OK',
+            ],
+            'closure at multi-segment path is invoked without arguments' => [
+                'template' => '{{foo.bar}}',
+                'data' => ['foo' => ['bar' => fn(...$args) => count($args) . ' args']],
+                'expected' => '0 args',
+            ],
+            '@data closure is called with HelperOptions' => [
+                'template' => '{{@foo}}',
+                'vars' => ['foo' => fn(HelperOptions $options) => $options->name . ': OK'],
+                'expected' => 'foo: OK',
+            ],
+            'registered helper takes priority over @data value' => [
+                'template' => '{{@var}}',
+                'vars' => ['var' => 'bad'],
+                'helpers' => ['var' => fn(HelperOptions $opts) => 'helper:' . $opts->name],
+                'expected' => 'helper:var',
+            ],
+            '@data closure at multi-segment path is invoked without arguments' => [
+                'template' => '{{@foo.bar}}',
+                'vars' => ['foo' => ['bar' => fn(...$args) => count($args) . ' args']],
+                'expected' => '0 args',
             ],
             'callable strings or arrays should NOT be treated as functions' => [
                 'template' => '{{foo}}',
@@ -2128,14 +2181,19 @@ class RegressionTest extends TestCase
 
             'closures in data can be used like helpers' => [
                 'template' => '{{test "Hello"}}',
-                'data' => ['test' => fn(string $arg) => "$arg runtime data"],
-                'expected' => 'Hello runtime data',
+                'data' => ['test' => fn(string $arg, HelperOptions $options) => "{$options->name}($arg)"],
+                'expected' => 'test(Hello)',
             ],
             'helpers always take precedence over data closures' => [
                 'template' => '{{test "Hello"}}',
                 'data' => ['test' => fn(string $arg) => "$arg runtime data"],
                 'helpers' => ['test' => fn(string $arg) => "$arg runtime helper"],
                 'expected' => 'Hello runtime helper',
+            ],
+            'closures in data can be used like block helpers' => [
+                'template' => '{{#test "Hello"}}{{/test}}',
+                'data' => ['test' => fn(string $arg, HelperOptions $options) => "{$options->name}($arg)"],
+                'expected' => 'test(Hello)',
             ],
         ];
     }
@@ -2232,10 +2290,30 @@ class RegressionTest extends TestCase
                 'expected' => 'got:val',
             ],
             'sub-expression as path head: callable' => [
-                'template' => '{{((my-helper foo).bar baz)}}',
-                'data' => ['foo' => 'x', 'baz' => 'y'],
-                'helpers' => ['my-helper' => fn($arg) => ['bar' => fn($x) => "called:$x"]],
-                'expected' => 'called:y',
+                'template' => '{{((my-helper foo).x baz key=val)}}',
+                'data' => ['foo' => 'x', 'baz' => 'y', 'val' => 'hashval'],
+                'helpers' => [
+                    'my-helper' => fn($arg) => [
+                        $arg => function ($x, ?HelperOptions $opts = null) {
+                            return 'called:' . $x . ',key=' . ($opts?->hash['key'] ?? 'null');
+                        },
+                    ],
+                ],
+                'expected' => 'called:y,key&#x3D;hashval',
+            ],
+            'sub-expression: depth-based callee receives hash in HelperOptions' => [
+                'template' => '{{#each items}}{{{identity (../outerFn pos key=val)}}}|{{/each}}',
+                'data' => [
+                    'items' => [
+                        ['pos' => 'p1', 'val' => 'v1'],
+                        ['pos' => 'p2', 'val' => 'v2'],
+                    ],
+                    'outerFn' => function ($pos, ?HelperOptions $opts = null) {
+                        return 'pos=' . $pos . ',key=' . ($opts?->hash['key'] ?? 'null');
+                    },
+                ],
+                'helpers' => ['identity' => fn($x) => $x],
+                'expected' => 'pos=p1,key=v1|pos=p2,key=v2|',
             ],
             'sub-expression as path head: argument' => [
                 'template' => '{{(foo (my-helper bar).baz)}}',
@@ -2254,6 +2332,51 @@ class RegressionTest extends TestCase
                     'foo' => fn(HelperOptions $options) => $options->hash['bar'],
                 ],
                 'expected' => 'WORLD',
+            ],
+
+            'sub-expression: multi-segment callee invokes helperMissing when not in context' => [
+                'template' => '{{{identity (foo.bar baz prop=2)}}}',
+                'data' => ['baz' => 'val'],
+                'helpers' => [
+                    'identity' => fn($x) => $x,
+                    'helperMissing' => function ($baz, HelperOptions $options) {
+                        return "missing:{$options->name},baz=$baz,prop={$options->hash['prop']}";
+                    },
+                ],
+                'expected' => 'missing:foo.bar,baz=val,prop=2',
+            ],
+            'sub-expression: multi-segment callee receives HelperOptions' => [
+                'template' => '{{{identity (foo.bar baz prop=2)}}}',
+                'data' => [
+                    'foo' => [
+                        'bar' => function ($baz, HelperOptions $options) {
+                            return "name={$options->name},baz=$baz,prop={$options->hash['prop']}";
+                        },
+                    ],
+                    'baz' => 'val',
+                ],
+                'helpers' => ['identity' => fn($x) => $x],
+                'expected' => 'name=foo.bar,baz=val,prop=2',
+            ],
+        ];
+    }
+
+    /** @return array<string, RegIssue> */
+    public static function literalPathProvider(): array
+    {
+        return [
+            'knownHelpersOnly: string literal path invokes lambda' => [
+                'template' => '{{"foo"}}',
+                'data' => ['foo' => fn() => 'lambda-result'],
+                'expected' => 'lambda-result',
+                'options' => new Options(knownHelpersOnly: true),
+            ],
+            'assumeObjects: string literal path uses helper dispatch, matching ambiguous PathExpression behavior' => [
+                'template' => '{{"foo"}}',
+                'data' => ['foo' => 'ctx'],
+                'helpers' => ['foo' => fn() => 'helper'],
+                'expected' => 'helper',
+                'options' => new Options(assumeObjects: true),
             ],
         ];
     }

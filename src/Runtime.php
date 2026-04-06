@@ -202,13 +202,11 @@ final class Runtime
     }
 
     /**
-     * Invoke $v if it is callable, passing any extra args; otherwise return $v as-is.
-     * Used for data variables that may hold functions (e.g. {{@hello}}) and for non-simple
-     * pathed expressions with arguments (e.g. {{./helper "arg"}}).
+     * Invoke $v if it is a Closure; otherwise return $v as-is.
      */
-    public static function dv(mixed $v, mixed ...$args): mixed
+    public static function dv(mixed $v): mixed
     {
-        return $v instanceof Closure ? $v(...$args) : $v;
+        return $v instanceof Closure ? $v() : $v;
     }
 
     /**
@@ -221,26 +219,28 @@ final class Runtime
      */
     public static function cv(mixed &$_this, string $name): mixed
     {
-        $v = is_array($_this) ? ($_this[$name] ?? null) : null;
+        $v = $_this[$name] ?? null;
         return $v instanceof Closure ? $v($_this) : $v;
     }
 
     /**
      * Helper-or-variable lookup for bare {{identifier}} expressions.
      * Checks runtime helpers first, then context value, then helperMissing fallback.
+     * When $assumeObjects is true, uses nullCheck for context lookup (throws on null context).
      *
      * @param mixed $_this current rendering context
      */
-    public static function hv(RuntimeContext $cx, string $name, mixed &$_this): mixed
+    public static function hv(RuntimeContext $cx, string $name, mixed &$_this, bool $assumeObjects = false): mixed
     {
         $helper = $cx->helpers[$name] ?? null;
         if ($helper !== null) {
             return static::hbch($cx, $helper, $name, [], [], $_this);
         }
-        if (is_array($_this) && array_key_exists($name, $_this)) {
-            return static::dv($_this[$name]);
+        $value = $assumeObjects ? static::nullCheck($_this, $name) : ($_this[$name] ?? null);
+        if ($value === null || $value instanceof Closure) {
+            return static::hbch($cx, $value ?? $cx->helpers['helperMissing'], $name, [], [], $_this);
         }
-        return static::hbch($cx, $cx->helpers['helperMissing'], $name, [], [], $_this);
+        return $value;
     }
 
     /**
@@ -345,19 +345,24 @@ final class Runtime
     }
 
     /**
-     * For {{> partial}} .
-     *
-     * @param string $name partial name
+     * Call {{> partial}}
      * @param mixed $context the partial's context value
      * @param array<string, mixed> $hash named hash overrides merged into the context
      * @param string $indent whitespace to prepend to each line of the partial's output
      */
-    public static function p(RuntimeContext $cx, string $name, mixed $context, array $hash, string $indent, ?Closure $partialBlock = null): string
+    public static function p(RuntimeContext $cx, ?string $name, mixed $context, array $hash, string $indent, ?Closure $partialBlock = null): string
     {
-        // inlinePartials (block-scoped {{#* inline}}) take precedence over partials (persistent),
-        // mirroring Handlebars.js which checks options.partials before env.partials.
-        $fn = $name === '@partial-block' ? $cx->partialBlock : ($cx->inlinePartials[$name] ?? $cx->partials[$name] ?? null);
+        $fn = match ($name) {
+            '@partial-block' => $cx->partialBlock,
+            // name can be null if a dynamic partial doesn't resolve to anything
+            null => null,
+            // inlinePartials (block-scoped {{#* inline}}) take precedence over partials (persistent),
+            // mirroring Handlebars.js which checks options.partials before env.partials.
+            default => $cx->inlinePartials[$name] ?? $cx->partials[$name] ?? null,
+        };
+
         if ($fn === null) {
+            $name ??= 'undefined'; // match HBS.js error
             throw new \Exception("The partial $name could not be found");
         }
 
@@ -418,34 +423,27 @@ final class Runtime
     }
 
     /**
-     * @param array<mixed> $positional
-     * @param array<string, mixed> $hash
+     * Resolve a helper by name: optionally check the helper registry, then the pre-resolved
+     * callable, then fall back to helperMissing. Throws if a non-null, non-Closure value is found.
+     * Pass $checkHelpers = false for scoped (./), depth (../), and data (@) paths, which resolve
+     * from context only, matching HBS.js behaviour.
      */
-    public static function dynhbch(RuntimeContext $cx, string $name, array $positional, array $hash, mixed &$_this): mixed
+    public static function resolveHelper(RuntimeContext $cx, string $name, mixed $callable, bool $checkHelpers): Closure
     {
-        $helper = $cx->helpers[$name] ?? null;
+        $helper = $checkHelpers ? ($cx->helpers[$name] ?? $callable) : $callable;
+        if ($helper instanceof Closure) {
+            return $helper;
+        }
         if ($helper !== null) {
-            return static::hbch($cx, $helper, $name, $positional, $hash, $_this);
+            throw new \Exception("Expected $name to be a function, got " . json_encode($helper));
         }
-
-        $fn = $_this[$name] ?? null;
-        if ($fn instanceof Closure) {
-            return static::hbch($cx, $fn, $name, $positional, $hash, $_this);
-        }
-
-        if (!$positional && !$hash) {
-            // No arguments: must be a helper call (e.g. sub-expression), not a property lookup.
-            throw new \Exception('Missing helper: "' . $name . '"');
-        }
-
-        return static::hbch($cx, $cx->helpers['helperMissing'], $name, $positional, $hash, $_this);
+        return $cx->helpers['helperMissing'];
     }
 
     /**
      * Invoke a resolved helper Closure with positional params, hash, and a HelperOptions instance.
-     * Used for known helpers (direct hbch calls from generated code), runtime-registered helpers
-     * (called from hv()), context closures (called from dynhbch()), and built-in fallbacks like
-     * helperMissing/blockHelperMissing.
+     * Used for known helpers and resolved helpers (direct hbch calls from generated code),
+     * runtime-registered helpers (called from hv()), and built-in fallbacks like helperMissing/blockHelperMissing.
      *
      * @param array<mixed> $positional
      * @param array<string, mixed> $hash
@@ -503,29 +501,6 @@ final class Runtime
             outerBlockParams: $outerBlockParams,
         );
         return static::resolveBlockResult($cx, $helper(...$positional), $_this, $cb, $else);
-    }
-
-    /**
-     * Like hbbch but for non-registered paths (pathed/depthed/scoped block calls with params).
-     * @param array<mixed> $positional
-     * @param array<string, mixed> $hash
-     * @param array<string,array<mixed>|string|int> $_this current rendering context for the helper
-     * @param Closure|null $cb callback function to render main block; null for inverted sections with params/hash
-     * @param Closure|null $else callback function to render {{else}}
-     * @param array<mixed> $outerBlockParams outer block param stack for block params declared by the template
-     */
-    public static function dynhbbch(RuntimeContext $cx, string $name, mixed $callable, array $positional, array $hash, mixed &$_this, ?Closure $cb, ?Closure $else, int $blockParamCount, array $outerBlockParams): mixed
-    {
-        $helper = $cx->helpers[$name] ?? null;
-        if ($helper !== null) {
-            return static::hbbch($cx, $helper, $name, $positional, $hash, $_this, $cb, $else, $blockParamCount, $outerBlockParams);
-        }
-
-        if (!$callable instanceof Closure) {
-            return static::hbbch($cx, $cx->helpers['helperMissing'], $name, $positional, $hash, $_this, $cb, $else, $blockParamCount, $outerBlockParams);
-        }
-
-        return static::hbbch($cx, $callable, '', $positional, $hash, $_this, $cb, $else, $blockParamCount, $outerBlockParams);
     }
 
     /**

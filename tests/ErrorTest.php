@@ -124,6 +124,22 @@ class ErrorTest extends TestCase
                 'options' => new Options(strict: true),
                 'expected' => '"foo" not defined',
             ],
+            'helperMissing should not be called when the identifier is a non-closure context property' => [
+                'template' => '{{foo "Hello"}}',
+                'data' => ['foo' => 'test'],
+                'helpers' => [
+                    'helperMissing' => fn($arg) => "$arg helperMissing",
+                ],
+                'expected' => 'Expected foo to be a function, got "test"',
+            ],
+            'helperMissing should not be called for blocks when the identifier is a non-closure context property' => [
+                'template' => '{{#foo "Hello"}}content{{/foo}}',
+                'data' => ['foo' => 'value'],
+                'helpers' => [
+                    'helperMissing' => fn($arg) => "$arg helperMissing",
+                ],
+                'expected' => 'Expected foo to be a function, got "value"',
+            ],
             'inline helper fn() unsupported' => [
                 'template' => '{{foo}}',
                 'helpers' => [
@@ -150,11 +166,15 @@ class ErrorTest extends TestCase
             'callable strings in data should not be treated as functions' => [
                 'template' => "{{#foo.bar 'arg'}}{{/foo.bar}}",
                 'data' => ['foo' => ['bar' => 'strlen']],
-                'expected' => 'Missing helper: "foo.bar"',
+                'expected' => 'Expected foo.bar to be a function, got "strlen"',
             ],
             'missing helper typeof' => [
                 'template' => '{{typeof hello}}',
                 'expected' => 'Missing helper: "typeof"',
+            ],
+            'missing multi-part helper' => [
+                'template' => '{{foo.bar "arg"}}',
+                'expected' => 'Missing helper: "foo.bar"',
             ],
             'missing block helper test' => [
                 'template' => '{{#test foo}}{{/test}}',
@@ -169,7 +189,7 @@ class ErrorTest extends TestCase
             ],
             'missing helper in dynamic partial' => [
                 'template' => '{{> (foo) bar}}',
-                'expected' => 'Missing helper: "foo"',
+                'expected' => 'The partial undefined could not be found',
             ],
             'with requires one argument' => [
                 'template' => '{{#with}}OK!{{/with}}',
@@ -235,6 +255,21 @@ class ErrorTest extends TestCase
                 'template' => '{{#if true}}nope{{/if}}',
                 'options' => new Options(knownHelpers: ['if' => false], knownHelpersOnly: true),
                 'expected' => 'You specified knownHelpersOnly, but used the unknown helper if',
+            ],
+            'knownHelpersOnly rejects multi-segment path with hash' => [
+                'template' => '{{#obj.fn prop=val}}BODY{{/obj.fn}}',
+                'options' => new Options(knownHelpersOnly: true),
+                'expected' => 'You specified knownHelpersOnly, but used the unknown helper obj.fn',
+            ],
+            'knownHelpersOnly rejects depth path with hash' => [
+                'template' => '{{#../flag prop=val}}BODY{{/../flag}}',
+                'options' => new Options(knownHelpersOnly: true),
+                'expected' => 'You specified knownHelpersOnly, but used the unknown helper ../flag',
+            ],
+            'knownHelpersOnly rejects @data path with params' => [
+                'template' => '{{@fn "Hello"}}',
+                'options' => new Options(knownHelpersOnly: true),
+                'expected' => 'You specified knownHelpersOnly, but used the unknown helper fn',
             ],
             'unknown decorator throws' => [
                 'template' => '{{#*help me}}{{/help}}',
