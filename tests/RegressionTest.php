@@ -1380,6 +1380,16 @@ class RegressionTest extends TestCase
                 'data' => ['name' => 'NoOne'],
                 'expected' => 'No, NoOne',
             ],
+            'with else branch: ../ at root has no parent' => [
+                'template' => '{{#with missing}}FOUND{{else}}{{../name}}{{/with}}',
+                'data' => ['name' => 'Root', 'missing' => null],
+                'expected' => '',
+            ],
+            'with else branch: ../ inside each resolves to actual parent' => [
+                'template' => '{{#each items}}{{#with missing}}FOUND{{else}}{{../name}}{{/with}}{{/each}}',
+                'data' => ['items' => [['name' => 'Item']], 'name' => 'Root', 'missing' => null],
+                'expected' => 'Root',
+            ],
 
             'bare log renders empty' => [
                 'template' => '{{log}}',
@@ -1851,6 +1861,12 @@ class RegressionTest extends TestCase
                 'data' => new SafeString('0'),
                 'expected' => 'T',
             ],
+
+            'if+includeZero else branch: ../ inside each resolves to actual parent' => [
+                'template' => '{{#each items}}{{#if falsy includeZero=true}}Y{{else}}{{../name}}{{/if}}{{/each}}',
+                'data' => ['items' => [['name' => 'Item', 'falsy' => false]], 'name' => 'Root'],
+                'expected' => 'Root',
+            ],
         ];
     }
 
@@ -1990,6 +2006,12 @@ class RegressionTest extends TestCase
             'inline partials registered inside an else block do not leak out after the section ends' => [
                 'template' => '{{#* inline "p"}}BEFORE{{/inline}}{{#foo}}{{else}}{{#* inline "p"}}INSIDE{{/inline}}{{> p}}{{/foo}}{{> p}}',
                 'expected' => 'INSIDEBEFORE',
+            ],
+
+            'blockHelperMissing false context: ../ inside each resolves to actual parent' => [
+                'template' => '{{#each items}}{{#falsy}}Y{{else}}{{../name}}{{/falsy}}{{/each}}',
+                'data' => ['items' => [['name' => 'Item', 'falsy' => false]], 'name' => 'Root'],
+                'expected' => 'Root',
             ],
         ];
     }

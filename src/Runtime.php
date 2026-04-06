@@ -35,7 +35,7 @@ final class Runtime
                 $condition = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
                 return static::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
                     ? $options->fn($options->scope)
-                    : $options->inverse();
+                    : $options->inverse($options->scope);
             },
             'unless' => static function (mixed ...$args): string {
                 if (count($args) !== 2) {
@@ -45,7 +45,7 @@ final class Runtime
                 $options = $args[1];
                 $condition = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
                 return static::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
-                    ? $options->inverse()
+                    ? $options->inverse($options->scope)
                     : $options->fn($options->scope);
             },
             'each' => static function (mixed $context, ?HelperOptions $options = null): string {
@@ -72,7 +72,7 @@ final class Runtime
                 if (static::ifvar($context)) {
                     return $options->fn($context, ['blockParams' => [$context]]);
                 }
-                return $options->inverse();
+                return $options->inverse($options->scope);
             },
             'lookup' => static function (mixed $obj, string|int $key): mixed {
                 if (is_array($obj)) {
@@ -89,12 +89,12 @@ final class Runtime
                 return '';
             },
             'helperMissing' => static function (mixed ...$args): mixed {
-                /** @var HelperOptions $options */
-                $options = end($args);
-                if (count($args) === 1 && !isset($options->fn)) {
+                if (count($args) === 1) {
                     // Bare variable lookup with no match — return null (mirrors HBS.js undefined).
                     return null;
                 }
+                /** @var HelperOptions $options */
+                $options = end($args);
                 throw new \Exception('Missing helper: "' . $options->name . '"');
             },
             'blockHelperMissing' => static function (mixed $context, HelperOptions $options): string {
@@ -105,7 +105,7 @@ final class Runtime
                     return array_is_list($context) ? $options->iterate($context) : $options->fn($context);
                 }
                 if ($context === false || $context === null) {
-                    return $options->inverse();
+                    return $options->inverse($options->scope);
                 }
                 // true renders with the outer scope unchanged; any other truthy value becomes the new scope.
                 return $options->fn($context === true ? $options->scope : $context);

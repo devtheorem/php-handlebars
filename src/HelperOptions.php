@@ -94,10 +94,10 @@ final class HelperOptions
         // block-scoped. PHP copy-on-write makes this assignment cheap when no inline partials are registered.
         $savedInlinePartials = $cx->inlinePartials;
         $scope = $this->scope;
-        // Skip depths push when the caller explicitly passes the current scope (equivalent to
-        // HBS.js options.fn(this) / options.inverse(this)), since the scope level isn't changing.
+        // Skip depths push when the caller explicitly passes the current scope (e.g. fn($options->scope)),
+        // equivalent to HBS.js options.fn(this) where the scope level isn't changing.
         $pushDepths = $context !== $scope;
-        $resolvedContext = $pushDepths ? ($context === Scope::Use ? $scope : $context) : $scope;
+        $resolvedContext = ($context === Scope::Use) ? $scope : $context;
         $outerFrame = null;
         $bpStack = null;
 
