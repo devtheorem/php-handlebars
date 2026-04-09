@@ -3,6 +3,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.3] Hoisted Closures - 2026-04-10
+### Changed
+- Improved rendering performance by hoisting the closures for block bodies and `{{else}}` clauses,
+  avoiding unnecessary re-allocation on repeated invocations.
+
+### Fixed
+- Failure to call ambiguous helper (e.g. `{{foo}}`) in `strict` mode.
+- `blockParams` count in `HelperOptions` for inverse helper calls.
+
+
 ## [1.2.2] Faithful Dispatch - 2026-04-05
 
 ### Changed
@@ -235,6 +245,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[1.2.3]: https://github.com/devtheorem/php-handlebars/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/devtheorem/php-handlebars/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/devtheorem/php-handlebars/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/devtheorem/php-handlebars/compare/v1.1.0...v1.2.0

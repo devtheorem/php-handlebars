@@ -5,12 +5,12 @@ A blazing fast, spec-compliant PHP implementation of [Handlebars](https://handle
 Originally based on [LightnCandy](https://github.com/zordius/lightncandy), but rewritten to enable
 full Handlebars.js compatibility without excessive feature flags or performance tradeoffs.
 
-PHP Handlebars compiles and executes complex templates up to 40% faster than LightnCandy, with 60% lower memory usage:
+PHP Handlebars compiles and executes complex templates over 40% faster than LightnCandy, with 60% lower memory usage:
 
 | Library            | Compile time | Runtime | Total time | Peak memory usage |
 |--------------------|--------------|---------|------------|-------------------|
 | LightnCandy 1.2.6  | 5.2 ms       | 2.8 ms  | 8.0 ms     | 5.3 MB            |
-| PHP Handlebars 1.2 | 3.2 ms       | 1.5 ms  | 4.7 ms     | 1.9 MB            |
+| PHP Handlebars 1.2 | 3.2 ms       | 1.4 ms  | 4.6 ms     | 1.9 MB            |
 
 _Tested on PHP 8.5 with the JIT enabled. See the `benchmark` branch to run the same test._
 
