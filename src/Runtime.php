@@ -202,7 +202,7 @@ final class Runtime
     }
 
     /**
-     * Invoke $v if it is a Closure; otherwise return $v as-is.
+     * Invoke $v without arguments if it is a Closure; otherwise return $v as-is.
      */
     public static function dv(mixed $v): mixed
     {
@@ -211,36 +211,42 @@ final class Runtime
 
     /**
      * Context variable lookup without helper dispatch.
-     * Looks up $name in $_this; if the value is a Closure, invokes it with $_this as context.
-     * Used when helper dispatch is unnecessary: knownHelpersOnly mode (the compiler has already
-     * ruled out known helpers), and inlined if/unless conditions on single-segment paths.
+     * Looks up $name in $_this; if the value is a Closure, invokes it with $_this as a positional arg
+     * (PHP equivalent of JS fn.call(context), where context binds as `this` with no positional args).
+     * When $strict is true, throws for missing keys.
      *
      * @param mixed $_this current rendering context
      */
-    public static function cv(mixed &$_this, string $name): mixed
+    public static function cv(mixed &$_this, string $name, bool $strict = false): mixed
     {
-        $v = $_this[$name] ?? null;
+        $v = $strict ? static::strictLookup($_this, $name, $name) : ($_this[$name] ?? null);
         return $v instanceof Closure ? $v($_this) : $v;
     }
 
     /**
      * Helper-or-variable lookup for bare {{identifier}} expressions.
-     * Checks runtime helpers first, then context value, then helperMissing fallback.
+     * Checks runtime helpers first, then context value.
+     * In non-strict mode: falls back to helperMissing when the context value is null.
      * When $assumeObjects is true, uses nullCheck for context lookup (throws on null context).
+     * When $strict is true, uses strictLookup after the helper check (throws for missing keys; no helperMissing fallback).
      *
      * @param mixed $_this current rendering context
      */
-    public static function hv(RuntimeContext $cx, string $name, mixed &$_this, bool $assumeObjects = false): mixed
+    public static function hv(RuntimeContext $cx, string $name, mixed &$_this, bool $assumeObjects = false, bool $strict = false): mixed
     {
         $helper = $cx->helpers[$name] ?? null;
         if ($helper !== null) {
             return static::hbch($cx, $helper, $name, [], [], $_this);
         }
-        $value = $assumeObjects ? static::nullCheck($_this, $name) : ($_this[$name] ?? null);
-        if ($value === null || $value instanceof Closure) {
-            return static::hbch($cx, $value ?? $cx->helpers['helperMissing'], $name, [], [], $_this);
+        if ($strict) {
+            $value = static::strictLookup($_this, $name, $name);
+        } else {
+            $value = $assumeObjects ? static::nullCheck($_this, $name) : ($_this[$name] ?? null);
+            if ($value === null) {
+                return static::hbch($cx, $cx->helpers['helperMissing'], $name, [], [], $_this);
+            }
         }
-        return $value;
+        return $value instanceof Closure ? static::hbch($cx, $value, $name, [], [], $_this) : $value;
     }
 
     /**

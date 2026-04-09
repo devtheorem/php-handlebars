@@ -217,19 +217,15 @@ final class Compiler
      */
     private function classifySexpr(?string $simpleName, array $params, ?Hash $hash): SexprType
     {
-        if ($simpleName !== null && $this->lookupBlockParam($simpleName) !== null) {
-            return SexprType::Simple;
-        }
-        if ($simpleName !== null && $this->isKnownHelper($simpleName)) {
-            return SexprType::Helper;
-        }
-        if ($params || $hash !== null) {
-            return SexprType::Helper;
-        }
         if ($simpleName !== null) {
-            return SexprType::Ambiguous;
+            if ($this->lookupBlockParam($simpleName) !== null) {
+                return SexprType::Simple;
+            } elseif ($params || $hash || $this->isKnownHelper($simpleName)) {
+                return SexprType::Helper;
+            }
+            return $this->context->options->knownHelpersOnly ? SexprType::Simple : SexprType::Ambiguous;
         }
-        return SexprType::Simple;
+        return ($params || $hash) ? SexprType::Helper : SexprType::Simple;
     }
 
     /** Returns '$blockParams' when inside a block-param scope (for use() capture), '' otherwise. */
@@ -485,7 +481,8 @@ final class Compiler
 
         if ($partialName !== null && !$found) {
             // Register the block body as a fallback partial only if no runtime partial with this name exists yet.
-            $parts[] = "(isset(\$cx->inlinePartials[$p]) || isset(\$cx->partials[$p]) ? '' : " . self::getRuntimeFunc('in', "\$cx, $p, $bodyClosure") . ')';
+            $parts[] = "(isset(\$cx->inlinePartials[$p]) || isset(\$cx->partials[$p]) ? '' : "
+                . self::getRuntimeFunc('in', "\$cx, $p, $bodyClosure") . ')';
         }
         $parts[] = self::getRuntimeFunc('p', "\$cx, $p, $vars, '', $bodyClosure");
         return implode('.', $parts);
@@ -493,8 +490,7 @@ final class Compiler
 
     private function MustacheStatement(MustacheStatement $mustache): string
     {
-        $raw = !$mustache->escaped || $this->context->options->noEscape;
-        $fn = $raw ? 'raw' : 'encq';
+        $fn = (!$mustache->escaped || $this->context->options->noEscape) ? 'raw' : 'encq';
         $path = $mustache->path;
 
         // SubExpression path: {{(path args)}} — always a direct helper call result
@@ -512,27 +508,38 @@ final class Compiler
             return self::getRuntimeFunc($fn, $call);
         }
 
-        if ($helperName !== null && $type === SexprType::Ambiguous && !$this->context->options->strict) {
+        if ($type === SexprType::Ambiguous) {
+            assert($helperName !== null);
             $escapedKey = self::quote($helperName);
             $isData = $path instanceof PathExpression && $path->data;
-            if ($this->context->options->knownHelpersOnly) {
-                $lookup = $isData ? "\$cx->data[$escapedKey] ?? null" : self::getRuntimeFunc('cv', "\$in, $escapedKey");
-                return self::getRuntimeFunc($fn, $lookup);
-            }
             $scope = $isData ? '$cx->data' : '$in';
-            $hvArgs = "\$cx, $escapedKey, $scope" . ($this->context->options->assumeObjects ? ', true' : '');
+            $hvArgs = "\$cx, $escapedKey, $scope";
+            if ($this->context->options->assumeObjects) {
+                $hvArgs .= ', true';
+            } elseif ($this->context->options->strict) {
+                $hvArgs .= ', false, true';
+            }
             return self::getRuntimeFunc($fn, self::getRuntimeFunc('hv', $hvArgs));
         }
 
-        // Simple: direct path lookup
+        // Simple: direct path lookup with lambda resolution.
+        // For knownHelpersOnly bare identifiers (single-segment, non-data): use cv() to pass the
+        // current context to any Closure, mirroring JS fn.call(context) where context is `this`.
+        // For all other simple paths (multi-segment, scoped, depth, data): use dv() with zero args,
+        // matching HBS.js container.lambda which also passes no positional arguments.
         if ($path instanceof PathExpression) {
-            return self::getRuntimeFunc($fn, self::getRuntimeFunc('dv', $this->PathExpression($path)));
+            if ($helperName !== null && !$path->data && $this->context->options->knownHelpersOnly) {
+                $cvArgs = '$in, ' . self::quote($helperName) . ($this->context->options->strict ? ', true' : '');
+                return self::getRuntimeFunc($fn, self::getRuntimeFunc('cv', $cvArgs));
+            }
+            $expression = $this->PathExpression($path);
+        } else {
+            // Literal in simple position: same lambda resolution as PathExpression above.
+            $literalKey = $this->getLiteralKeyName($path);
+            $expression = $this->compileModeAwareLookup('$in', [$literalKey], $literalKey);
         }
 
-        // Literal in simple/fallthrough position (strict, assumeObjects, or knownHelpersOnly):
-        // compile as a direct context lookup using the normalized key name.
-        $literalKey = $this->getLiteralKeyName($path);
-        return self::getRuntimeFunc($fn, $this->compileModeAwareLookup('$in', [$literalKey], $literalKey));
+        return self::getRuntimeFunc($fn, self::getRuntimeFunc('dv', $expression));
     }
 
     // ── Expressions ─────────────────────────────────────────────────
@@ -547,26 +554,24 @@ final class Compiler
         return $this->compileHelperCall($helperName, $path, $expression->params, $expression->hash);
     }
 
-    private function PathExpression(PathExpression $expression): string
+    private function PathExpression(PathExpression $path): string
     {
-        $data = $expression->data;
-        $depth = $expression->depth;
-        $parts = $expression->parts;
+        $data = $path->data;
+        $depth = $path->depth;
 
         // When the path head is a SubExpression (e.g. (helper).foo.bar), compile the
         // sub-expression as the base and use the string tail as the remaining key accesses.
-        $hasSubExprHead = $expression->head instanceof SubExpression;
+        $hasSubExprHead = $path->head instanceof SubExpression;
         if ($hasSubExprHead) {
-            $base = '(' . $this->SubExpression($expression->head) . ')';
-            $stringParts = $expression->tail;
+            $base = '(' . $this->SubExpression($path->head) . ')';
+            $stringParts = $path->tail;
         } else {
             $base = $this->buildBasePath($data, $depth);
-            /** @var string[] $parts */
-            $stringParts = $parts;
+            /** @var string[] $stringParts */
+            $stringParts = $path->parts;
         }
 
-        // `this` with no parts or empty parts
-        if (($expression->this_ && !$parts) || !$stringParts) {
+        if (!$stringParts) {
             return $base;
         }
 
@@ -578,8 +583,8 @@ final class Compiler
         $isLength = end($stringParts) === 'length';
 
         // Check block params (depth-0, non-data, non-scoped paths only, not SubExpression-headed)
-        if (!$hasSubExprHead && !$data && $depth === 0 && !self::scopedId($expression)) {
-            $bp = $this->lookupBlockParam($expression->head);
+        if (!$hasSubExprHead && !$data && $depth === 0 && !self::scopedId($path)) {
+            $bp = $this->lookupBlockParam($path->head);
             if ($bp !== null) {
                 [$bpDepth, $bpIndex] = $bp;
                 $bpBase = "\$blockParams[$bpDepth][$bpIndex]";
@@ -589,8 +594,8 @@ final class Compiler
                 }
 
                 // Skip the block param name since it has been resolved to a $blockParams index.
-                $keys = $isLength ? array_slice($expression->tail, 0, -1) : $expression->tail;
-                $lookup = $this->compileModeAwareLookup($bpBase, $keys, $expression->original);
+                $keys = $isLength ? array_slice($path->tail, 0, -1) : $path->tail;
+                $lookup = $this->compileModeAwareLookup($bpBase, $keys, $path->original);
                 return $isLength ? $this->buildLookupLength($lookup) : $lookup;
             }
         }
@@ -601,11 +606,11 @@ final class Compiler
         if ($isLength) {
             $partsExceptLength = array_slice($stringParts, 0, -1);
             return $this->buildLookupLength(
-                $this->compileModeAwareLookup($base, $partsExceptLength, $expression->original),
+                $this->compileModeAwareLookup($base, $partsExceptLength, $path->original),
             );
         }
 
-        return $this->compileModeAwareLookup($base, $stringParts, $expression->original);
+        return $this->compileModeAwareLookup($base, $stringParts, $path->original);
     }
 
     /**

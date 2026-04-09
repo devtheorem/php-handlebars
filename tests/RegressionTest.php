@@ -1359,10 +1359,18 @@ class RegressionTest extends TestCase
                 'expected' => 'EMPTY',
             ],
 
-            'ensure that block parameters are correctly escaped' => [
+            'block parameters are correctly escaped' => [
                 'template' => "{{#each items as |[it\\'s] item|}}{{item}}{{/each}}",
                 'data' => ['items' => ['one', 'two']],
                 'expected' => '01',
+            ],
+
+            'block parameters take precedence over known helpers' => [
+                'template' => "{{#each items as |item id|}}{{id}}: {{item}}\n{{/each}}{{item}}",
+                'data' => ['items' => ['a', 'b']],
+                'options' => new Options(knownHelpers: ['item' => true]),
+                'helpers' => ['item' => fn() => 'Helper!'],
+                'expected' => "0: a\n1: b\nHelper!",
             ],
 
             'each over array with @key' => [
@@ -2232,6 +2240,13 @@ class RegressionTest extends TestCase
                 'options' => new Options(strict: true),
                 'data' => ['foo' => null],
                 'expected' => '',
+            ],
+
+            'strict mode should invoke ambiguous helper not present in context data' => [
+                'template' => '{{greeting}}',
+                'options' => new Options(strict: true),
+                'helpers' => ['greeting' => fn() => 'Hello'],
+                'expected' => 'Hello',
             ],
         ];
     }
