@@ -745,12 +745,12 @@ class RegressionTest extends TestCase
             'inverted helpers should support block params' => [
                 'template' => '{{^helper items as |foo bar baz|}}{{foo}}{{bar}}{{baz}}{{/helper}}',
                 'helpers' => [
-                    'helper' => function (array $items, HelperOptions $options) {
-                        return $options->inverse($options->scope, ['blockParams' => [1, 2, 3]]);
+                    'helper' => function (array $items, HelperOptions $opts) {
+                        return $opts->blockParams . $opts->inverse($opts->scope, ['blockParams' => ['a', 'b', 'c']]);
                     },
                 ],
                 'data' => ['items' => []],
-                'expected' => '123',
+                'expected' => '3abc',
             ],
             'inverse() called with no args at top level: ../ in else body resolves to current scope' => [
                 'template' => '{{^myHelper}}{{../parent}}{{/myHelper}}',
@@ -1371,6 +1371,12 @@ class RegressionTest extends TestCase
                 'options' => new Options(knownHelpers: ['item' => true]),
                 'helpers' => ['item' => fn() => 'Helper!'],
                 'expected' => "0: a\n1: b\nHelper!",
+            ],
+
+            'outer block param accessible from inner each without block params' => [
+                'template' => '{{#each items as |item|}}{{#each ../cols}}{{item}},{{/each}}{{/each}}',
+                'data' => ['items' => ['a', 'b'], 'cols' => [1, 2]],
+                'expected' => 'a,a,b,b,',
             ],
 
             'each over array with @key' => [

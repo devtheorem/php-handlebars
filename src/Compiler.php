@@ -171,18 +171,18 @@ final class Compiler
             if ($this->context->options->knownHelpersOnly) {
                 $this->throwKnownHelpersOnly($name);
             }
-            // Simple/Literal path: look up the key in context. Complex path: compile the full expression.
-            $var = $helperName !== null
-                ? $this->compileModeAwareLookup('$in', [$helperName], $helperName)
-                : $this->compileExpression($block->path);
-            return $this->compileDynamicBlockHelper($block, $name, $var);
         }
 
+        // Simple/Literal path: look up the key in context. Complex path: compile the full expression.
         $var = $helperName !== null
             ? $this->compileModeAwareLookup('$in', [$helperName], $helperName)
             : $this->compileExpression($block->path);
-        $escapedName = self::quote($name);
 
+        if ($type === SexprType::Helper) {
+            return $this->compileDynamicBlockHelper($block, $name, $var);
+        }
+
+        $escapedName = self::quote($name);
         $inverted = $block->program === null;
         $fnProgram = $block->program ?? $block->inverse ?? throw new \LogicException('Inverted section must have an inverse program');
         $blockFn = $this->compileProgramWithBlockParams($fnProgram);
@@ -192,10 +192,8 @@ final class Compiler
         if (!$inverted && !$this->context->options->knownHelpersOnly) {
             $bp = $block->program->blockParams;
             if ($block->hash !== null || $bp) {
-                $params = $this->compileParams([], $block->hash);
-                $outerBp = $this->outerBlockParamsExpr();
                 $helperExpr = self::getRuntimeFunc('resolveHelper', "\$cx, $escapedName, $var, true");
-                return self::buildHbbchCall($helperExpr, $escapedName, $params, $blockFn, $else, count($bp), $outerBp);
+                return $this->buildBlockHelperCall($helperExpr, $escapedName, $block, $blockFn, $else);
             }
         }
 
@@ -232,23 +230,6 @@ final class Compiler
     private function blockParamsUseVars(): string
     {
         return $this->blockParamValues ? '$blockParams' : '';
-    }
-
-    /**
-     * Returns the PHP expression for the outer block param stack at the current compile-time scope.
-     * '$blockParams' when inside a bp-declaring block; '[]' otherwise (top-level for this each/helper).
-     * When returning '$blockParams', marks the current bpRefStack frame so the enclosing closure
-     * captures $blockParams via use(), even if it doesn't directly access block param values.
-     */
-    private function outerBlockParamsExpr(): string
-    {
-        if (!$this->blockParamValues) {
-            return '[]';
-        }
-        if ($this->bpRefStack) {
-            $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
-        }
-        return '$blockParams';
     }
 
     /**
@@ -309,12 +290,9 @@ final class Compiler
             $else = $this->compileProgramOrNull($block->inverse);
         }
 
-        $outerBp = $this->outerBlockParamsExpr();
-        $params = $this->compileParams($block->params, $block->hash);
         $helperName = self::quote($name);
-        $bpCount = count($fnProgram->blockParams);
 
-        return self::buildHbbchCall("\$cx->helpers[$helperName]", $helperName, $params, $fn, $else, $bpCount, $outerBp);
+        return $this->buildBlockHelperCall("\$cx->helpers[$helperName]", $helperName, $block, $fn, $else);
     }
 
     /**
@@ -363,16 +341,13 @@ final class Compiler
 
     private function compileDynamicBlockHelper(BlockStatement $block, string $name, string $varPath): string
     {
-        $bp = $block->program->blockParams ?? [];
-        $params = $this->compileParams($block->params, $block->hash);
         $blockFn = $block->program !== null
             ? $this->compileProgramWithBlockParams($block->program)
             : 'null';
         $else = $this->compileProgramOrNull($block->inverse);
-        $outerBp = $this->outerBlockParamsExpr();
         $helperName = self::quote($name);
         $helperExpr = self::getRuntimeFunc('resolveHelper', "\$cx, $helperName, $varPath, true");
-        return self::buildHbbchCall($helperExpr, $helperName, $params, $blockFn, $else, count($bp), $outerBp);
+        return $this->buildBlockHelperCall($helperExpr, $helperName, $block, $blockFn, $else);
     }
 
     private function DecoratorBlock(BlockStatement $block): string
@@ -837,14 +812,20 @@ final class Compiler
         return $n;
     }
 
-    /**
-     * Build an hbbch call with the given helper expression.
-     * Trailing bpCount/outerBp args are omitted when both are zero/empty.
-     */
-    private static function buildHbbchCall(string $helperExpr, string $escapedName, string $params, string $blockFn, string $else, int $bpCount, string $outerBp): string
+    private function buildBlockHelperCall(string $helperExpr, string $escapedName, BlockStatement $block, string $fn, string $else): string
     {
+        // Mark the enclosing bp-declaring closure as needing to capture $blockParams via use().
+        if ($this->blockParamValues && $this->bpRefStack) {
+            $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
+        }
+        $outerBp = $this->blockParamValues ? '$blockParams' : '[]';
+        $bpCount = count(($block->program ?? $block->inverse)->blockParams ?? []);
+        $params = $this->compileParams($block->params, $block->hash);
+
+        // omit trailing bpCount/outerBp args when both are zero/empty
         $trailingArgs = ($bpCount > 0 || $outerBp !== '[]') ? ", $bpCount, $outerBp" : '';
-        return self::getRuntimeFunc('hbbch', "\$cx, $helperExpr, $escapedName, $params, \$in, $blockFn, $else$trailingArgs");
+        $args = "\$cx, $helperExpr, $escapedName, $params, \$in, $fn, $else";
+        return self::getRuntimeFunc('hbbch', $args . $trailingArgs);
     }
 
     /**
