@@ -116,7 +116,7 @@ final class HelperOptions
             // body can traverse back up to the caller's context.
             $cx->depths[] = $scope;
         }
-        $ret = $closure($cx, $resolvedContext, $bpStack);
+        $ret = $closure($cx, $resolvedContext, $bpStack ?? $this->outerBlockParams);
         if ($pushDepths) {
             array_pop($cx->depths);
         }
@@ -156,10 +156,13 @@ final class HelperOptions
         $ret = '';
         $i = 0;
         $outerFrame = $cx->data;
-        // Pre-allocate bpStack once; mutate [0][0] and [0][1] per iteration.
-        // PHP COW ensures the inner array's refcount returns to 1 after $cb() returns,
+        $hasBp = $this->blockParams > 0;
+        // When block params are declared, pre-allocate a slot at depth 0 and mutate it each
+        // iteration. PHP COW ensures the inner array's refcount returns to 1 after $cb() returns,
         // so the next iteration's assignment is an in-place mutation, not a copy.
-        $bpStack = [[null, null], ...$this->outerBlockParams];
+        // When no block params are declared, pass outerBlockParams directly — prepending a slot
+        // would shift all compiled depth indices by 1.
+        $bpStack = $hasBp ? [[null, null], ...$this->outerBlockParams] : $this->outerBlockParams;
         $data = Handlebars::createFrame($outerFrame);
         $data['first'] = true;
 
@@ -169,8 +172,10 @@ final class HelperOptions
             $data['last'] = $i === $last;
             $cx->data = $data;
 
-            $bpStack[0][0] = $value;
-            $bpStack[0][1] = $index;
+            if ($hasBp) {
+                $bpStack[0][0] = $value;
+                $bpStack[0][1] = $index;
+            }
             $ret .= $cb($cx, $value, $bpStack);
             $data['first'] = false;
             $i++;

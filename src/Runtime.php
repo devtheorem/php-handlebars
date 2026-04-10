@@ -310,12 +310,13 @@ final class Runtime
      * @param mixed $in input data with current scope
      * @param Closure|null $cb callback function to render child context; null for inverted sections
      * @param Closure|null $else callback function to render child context when {{else}}
+     * @param array<mixed> $outerBlockParams outer block param stack, threaded into helper dispatch
      */
-    public static function sec(RuntimeContext $cx, mixed $value, mixed $in, ?Closure $cb, ?Closure $else = null, ?string $helperName = null): string
+    public static function sec(RuntimeContext $cx, mixed $value, mixed $in, ?Closure $cb, ?Closure $else, ?string $helperName, array $outerBlockParams = []): string
     {
         $helper = $helperName !== null ? ($cx->helpers[$helperName] ?? null) : null;
         if ($helper !== null) {
-            return static::hbbch($cx, $helper, $helperName, [], [], $in, $cb, $else);
+            return static::hbbch($cx, $helper, $helperName, [], [], $in, $cb, $else, $outerBlockParams);
         }
 
         // Lambda functions in block position: simple-path identifiers ($helperName set) receive
@@ -328,7 +329,7 @@ final class Runtime
             return static::resolveBlockResult($cx, $result, $in, $cb, $else);
         }
 
-        return static::hbbch($cx, $cx->helpers['blockHelperMissing'], $helperName ?? '', [$value], [], $in, $cb, $else);
+        return static::hbbch($cx, $cx->helpers['blockHelperMissing'], $helperName ?? '', [$value], [], $in, $cb, $else, $outerBlockParams);
     }
 
     /**
@@ -493,7 +494,7 @@ final class Runtime
      * @param Closure|null $else callback function to render child context when {{else}}
      * @param array<mixed> $outerBlockParams outer block param stack for block params declared by the template
      */
-    public static function hbbch(RuntimeContext $cx, Closure $helper, string $name, array $positional, array $hash, mixed &$_this, ?Closure $cb, ?Closure $else, int $blockParamCount = 0, array $outerBlockParams = []): string
+    public static function hbbch(RuntimeContext $cx, Closure $helper, string $name, array $positional, array $hash, mixed &$_this, ?Closure $cb, ?Closure $else, array $outerBlockParams = [], int $blockParamCount = 0): string
     {
         $positional[] = new HelperOptions(
             scope: $_this,

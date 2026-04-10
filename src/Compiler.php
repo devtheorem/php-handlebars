@@ -66,6 +66,22 @@ final class Compiler
      */
     private bool $compilingHelperArgs = false;
 
+    private int $nextProgramId = 0;
+    /** @var string[] */
+    private array $programDefs = [];
+    /**
+     * Stack of dep arrays — one per active compilation level. Each entry tracks
+     * the $pN variables directly referenced at that level (direct children only;
+     * transitive deps are captured via the use() chains of inner closures).
+     * @var string[][]
+     */
+    private array $programDepStack = [];
+    /**
+     * Deps for the top-level render closure — set by compile() after compileProgram() returns.
+     * @var string[]
+     */
+    private array $renderDeps = [];
+
     public function __construct(
         private readonly Parser $parser,
     ) {}
@@ -76,7 +92,12 @@ final class Compiler
         $this->blockParamValues = [];
         $this->bpRefStack = [];
         $this->lastCompileProgramHadDirectBpRef = false;
-        return $this->compileProgram($program);
+        $this->nextProgramId = 0;
+        $this->programDefs = [];
+        $this->programDepStack = [[]];
+        $code = $this->compileProgram($program);
+        $this->renderDeps = array_pop($this->programDepStack);
+        return $code;
     }
 
     /**
@@ -87,8 +108,10 @@ final class Compiler
     public function composePHPRender(string $code): string
     {
         $partials = implode(",\n", $this->context->partialCode);
-        $closure = self::templateClosure($code, $partials, "\n \$in = &\$cx->data['root'];");
-        return "use " . Runtime::class . " as LR;\nreturn $closure;";
+        $useVars = implode(', ', $this->renderDeps);
+        $closure = self::templateClosure($code, $partials, "\n \$in = &\$cx->data['root'];", $useVars);
+        $defs = $this->programDefs ? implode("\n", $this->programDefs) . "\n" : '';
+        return "use " . Runtime::class . " as LR;\n{$defs}return $closure;";
     }
 
     /**
@@ -197,8 +220,9 @@ final class Compiler
             }
         }
 
-        $nameArg = !$this->context->options->knownHelpersOnly && (!$inverted || $type === SexprType::Ambiguous) ? ", $escapedName" : '';
-        return self::getRuntimeFunc('sec', "\$cx, $var, \$in, $fn, $else$nameArg");
+        $nameArg = !$this->context->options->knownHelpersOnly && (!$inverted || $type === SexprType::Ambiguous) ? ", $escapedName" : ', null';
+        $outerBpArg = $this->blockParamValues ? ', $blockParams' : '';
+        return self::getRuntimeFunc('sec', "\$cx, $var, \$in, $fn, $else$nameArg$outerBpArg");
     }
 
     private function isKnownHelper(string $helperName): bool
@@ -226,16 +250,28 @@ final class Compiler
         return ($params || $hash) ? SexprType::Helper : SexprType::Simple;
     }
 
-    /** Returns '$blockParams' when inside a block-param scope (for use() capture), '' otherwise. */
-    private function blockParamsUseVars(): string
+    /**
+     * Build the use() clause string for an inline partial body closure.
+     * Prepends $blockParams when inside a block-param scope (marking bpRefStack),
+     * then appends any hoisted program deps added since $depsBefore.
+     */
+    private function buildInlineUseClause(int $depsBefore): string
     {
-        return $this->blockParamValues ? '$blockParams' : '';
+        $bodyDeps = array_slice($this->programDepStack[array_key_last($this->programDepStack)], $depsBefore);
+        $vars = [];
+        if ($this->blockParamValues) {
+            if ($this->bpRefStack) {
+                $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
+            }
+            $vars[] = '$blockParams';
+        }
+        return implode(', ', array_merge($vars, $bodyDeps));
     }
 
     /**
      * Compile a block program, pushing/popping its block params around the compilation.
-     * Returns a PHP closure string: the signature varies based on whether the program declares or
-     * inherits block params, and a $sc preamble is added when depths are accessed multiple times.
+     * Returns a $pN variable name referencing a hoisted closure. The signature uses
+     * array $blockParams = [] when the program declares or inherits block params.
      */
     private function compileProgramWithBlockParams(Program $program): string
     {
@@ -243,24 +279,33 @@ final class Compiler
         if ($bp) {
             array_unshift($this->blockParamValues, $bp);
         }
+        $this->programDepStack[] = [];
         $body = $this->compileProgram($program);
         if ($bp) {
             array_shift($this->blockParamValues);
         }
 
-        $declaresBp = (bool) $bp;
-        $inheritsBp = $this->lastCompileProgramHadDirectBpRef;
+        $usesBp = $bp || $this->lastCompileProgramHadDirectBpRef;
         $preamble = '';
         if (str_contains($body, '$cx->depths[count($cx->depths)-')) {
             $preamble = '$sc=count($cx->depths);';
             $body = str_replace('$cx->depths[count($cx->depths)-', '$cx->depths[$sc-', $body);
         }
-        $sig = match (true) {
-            $declaresBp => "function(\$cx, \$in, array \$blockParams = [])",
-            $inheritsBp => "function(\$cx, \$in) use (\$blockParams)",
-            default => "function(\$cx, \$in)",
-        };
-        return "$sig {{$preamble}return $body;}";
+        $sig = $usesBp
+            ? "function(\$cx, \$in, array \$blockParams = [])"
+            : "function(\$cx, \$in)";
+
+        $deps = array_pop($this->programDepStack);
+        if ($deps) {
+            $sig .= ' use (' . implode(', ', $deps) . ')';
+        }
+
+        $id = $this->nextProgramId++;
+        $var = "\$p{$id}";
+        $this->programDefs[] = "{$var} = {$sig} {{$preamble}return {$body};};";
+        // Propagate this var to the parent dep level so callers can capture it.
+        $this->programDepStack[array_key_last($this->programDepStack)][] = $var;
+        return $var;
     }
 
     private function compileBlockHelper(BlockStatement $block, string $name): string
@@ -366,14 +411,15 @@ final class Compiler
             $partialName = $this->getLiteralKeyName($firstArg);
         }
 
+        $depsBefore = count($this->programDepStack[array_key_last($this->programDepStack)]);
         $body = $this->compileProgramOrEmpty($block->program);
 
         // Register in usedPartial so {{> partialName}} can compile without error.
         // Do NOT add to partialCode - `in()` handles runtime registration, keeping inline partials block-scoped.
         $this->context->usedPartial[$partialName] = '';
 
-        // Capture $blockParams if we're inside a block-param scope so the inline partial body can access them.
-        $useVars = $this->blockParamsUseVars();
+        // Capture $blockParams and any hoisted program vars so the inline partial body can access them.
+        $useVars = $this->buildInlineUseClause($depsBefore);
         $escapedName = self::quote($partialName);
         return self::getRuntimeFunc('in', "\$cx, $escapedName, " . self::templateClosure($body, useVars: $useVars));
     }
@@ -424,6 +470,7 @@ final class Compiler
         }
 
         $name = $statement->name;
+        $depsBefore = count($this->programDepStack[array_key_last($this->programDepStack)]);
         $body = $this->compileProgram($statement->program);
         $partialName = null;
         $found = false;
@@ -450,8 +497,8 @@ final class Compiler
 
         $vars = $this->compilePartialParams($statement->params, $statement->hash);
 
-        // Capture $blockParams if we're inside a block-param scope so the partial block body can access them.
-        $useVars = $this->blockParamsUseVars();
+        // Capture $blockParams and any hoisted program vars so the partial block body can access them.
+        $useVars = $this->buildInlineUseClause($depsBefore);
         $bodyClosure = self::templateClosure($body, useVars: $useVars);
 
         if ($partialName !== null && !$found) {
@@ -673,9 +720,16 @@ final class Compiler
         }
 
         $program = $this->parser->parse($template, $this->context->options->ignoreStandalone);
-        $code = (new Compiler($this->parser))->compile($program, $this->context);
+        $partialCompiler = new self($this->parser);
+        $code = $partialCompiler->compile($program, $this->context);
+        $closureExpr = self::templateClosure($code, useVars: implode(', ', $partialCompiler->renderDeps));
 
-        $this->context->partialCode[$name] = self::quote($name) . ' => ' . self::templateClosure($code);
+        if ($partialCompiler->programDefs) {
+            $defs = implode("\n", $partialCompiler->programDefs) . "\n";
+            $closureExpr = "(static function() {\n{$defs}return {$closureExpr};\n})()";
+        }
+
+        $this->context->partialCode[$name] = self::quote($name) . ' => ' . $closureExpr;
     }
 
     public function handleDynamicPartials(): void
@@ -814,7 +868,7 @@ final class Compiler
 
     private function buildBlockHelperCall(string $helperExpr, string $escapedName, BlockStatement $block, string $fn, string $else): string
     {
-        // Mark the enclosing bp-declaring closure as needing to capture $blockParams via use().
+        // Mark the enclosing closure as needing $blockParams in its signature.
         if ($this->blockParamValues && $this->bpRefStack) {
             $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
         }
@@ -823,7 +877,7 @@ final class Compiler
         $params = $this->compileParams($block->params, $block->hash);
 
         // omit trailing bpCount/outerBp args when both are zero/empty
-        $trailingArgs = ($bpCount > 0 || $outerBp !== '[]') ? ", $bpCount, $outerBp" : '';
+        $trailingArgs = ($bpCount > 0 || $outerBp !== '[]') ? ", $outerBp, $bpCount" : '';
         $args = "\$cx, $helperExpr, $escapedName, $params, \$in, $fn, $else";
         return self::getRuntimeFunc('hbbch', $args . $trailingArgs);
     }
