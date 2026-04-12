@@ -114,6 +114,17 @@ class ErrorTest extends TestCase
                 'helpers' => ['blockHelperMissing' => fn() => 'bad'],
                 'expected' => '"foo" not defined',
             ],
+            'compat and strict: root-level block lookup throws' => [
+                'template' => "{{#outer}}Hello {{#inner}}cruel {{foo}}{{/inner}}{{/outer}}",
+                'options' => new Options(compat: true, strict: true),
+                'data' => [
+                    'foo' => 'world',
+                    'outer' => [
+                        'inner' => [['text' => 'goodbye']],
+                    ],
+                ],
+                'expected' => '"outer" not defined',
+            ],
             'strict mode missing block variable' => [
                 'template' => '{{#foo}}OK{{/foo}}',
                 'options' => new Options(strict: true),

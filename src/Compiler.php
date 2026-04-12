@@ -66,6 +66,13 @@ final class Compiler
      */
     private bool $compilingHelperArgs = false;
 
+    /**
+     * Tracks the current block-program nesting depth. 0 = root program, >0 = inside a block body.
+     * Mirrors HBS.js's lastContext counter, which controls whether lookupOnContext() uses
+     * depthedLookup() (at root, lastContext=0) or pushContext() (inside blocks, lastContext>0).
+     */
+    private int $compileProgramDepth = 0;
+
     private int $nextProgramId = 0;
     /** @var string[] */
     private array $programDefs = [];
@@ -92,6 +99,7 @@ final class Compiler
         $this->blockParamValues = [];
         $this->bpRefStack = [];
         $this->lastCompileProgramHadDirectBpRef = false;
+        $this->compileProgramDepth = 0;
         $this->nextProgramId = 0;
         $this->programDefs = [];
         $this->programDepStack = [[]];
@@ -280,7 +288,9 @@ final class Compiler
             array_unshift($this->blockParamValues, $bp);
         }
         $this->programDepStack[] = [];
+        $this->compileProgramDepth++;
         $body = $this->compileProgram($program);
+        $this->compileProgramDepth--;
         if ($bp) {
             array_shift($this->blockParamValues);
         }
@@ -451,10 +461,16 @@ final class Compiler
         // appendContent opcode) and invoke the partial with an empty indent so its lines are
         // not additionally indented.
         if ($this->context->options->preventIndent && $statement->indent !== '') {
-            return "$indent." . self::getRuntimeFunc('p', "\$cx, $p, $vars, ''");
+            $prepend = $indent . '.';
+            $indent = "''";
+        } else {
+            $prepend = '';
         }
 
-        return self::getRuntimeFunc('p', "\$cx, $p, $vars, $indent");
+        // In compat mode, pass the caller's $in so the partial inherits the full context chain.
+        $compatArg = $this->context->options->compat ? ', null, $in' : '';
+
+        return $prepend . self::getRuntimeFunc('p', "\$cx, $p, $vars, $indent$compatArg");
     }
 
     private function PartialBlockStatement(PartialBlockStatement $statement): string
@@ -506,7 +522,8 @@ final class Compiler
             $parts[] = "(isset(\$cx->inlinePartials[$p]) || isset(\$cx->partials[$p]) ? '' : "
                 . self::getRuntimeFunc('in', "\$cx, $p, $bodyClosure") . ')';
         }
-        $parts[] = self::getRuntimeFunc('p', "\$cx, $p, $vars, '', $bodyClosure");
+        $compatArg = $this->context->options->compat ? ', $in' : '';
+        $parts[] = self::getRuntimeFunc('p', "\$cx, $p, $vars, '', $bodyClosure$compatArg");
         return implode('.', $parts);
     }
 
@@ -534,6 +551,10 @@ final class Compiler
             assert($helperName !== null);
             $escapedKey = self::quote($helperName);
             $isData = $path instanceof PathExpression && $path->data;
+            // In compat mode use hvc() for the helper+depths-walk lookup. @data vars are never depth-walked.
+            if ($this->context->options->compat && !$isData) {
+                return self::getRuntimeFunc($fn, self::getRuntimeFunc('hvc', "\$cx, $escapedKey, \$in"));
+            }
             $scope = $isData ? '$cx->data' : '$in';
             $hvArgs = "\$cx, $escapedKey, $scope";
             if ($this->context->options->assumeObjects) {
@@ -967,6 +988,28 @@ final class Compiler
     {
         if (!$parts) {
             return $base;
+        }
+        // Compat: only applies to $in (not ../, @data, or block-param bases).
+        // Mirrors HBS.js lookupOnContext(), which calls depthedLookup(parts[0]) at root (lastContext=0).
+        if ($this->context->options->compat && $base === '$in') {
+            if (!$this->context->options->strict) {
+                // Non-strict: compatLookup resolves the root key via depths-walk; remaining parts
+                // are accessed inline, matching HBS.js where only lookup() uses depths, and
+                // subsequent nameLookup() calls in compiled code handle the rest of the path.
+                $compatBase = self::getRuntimeFunc('compatLookup', '$cx, $in, ' . self::quote($parts[0]));
+                $remaining = array_slice($parts, 1);
+                return $remaining ? $compatBase . self::buildKeyAccess($remaining) . ' ?? null' : $compatBase;
+            }
+            // Strict at root: depths-walk parts[0] to get the base, then fall through to strict
+            // resolution below. HBS.js emits strict(depthedLookup(parts[0]), parts[last], loc),
+            // which fails when the resolved value doesn't contain the key.
+            if ($this->compileProgramDepth === 0) {
+                $base = self::getRuntimeFunc('compatLookup', '$cx, $in, ' . self::quote($parts[0]));
+                // Consume parts[0] (already used for the compat base); for single-part paths,
+                // reuse it as the strict terminal — parts[last] == parts[0] in HBS.js's indexing.
+                $parts = array_slice($parts, 1) ?: $parts;
+            }
+            // At non-root: fall through to strict handling with $in as the base.
         }
         if ($this->context->options->assumeObjects || ($this->context->options->strict && $this->compilingHelperArgs)) {
             // Use nullCheck chain for assumeObjects and helper arguments in strict mode.

@@ -234,19 +234,58 @@ final class Runtime
      */
     public static function hv(RuntimeContext $cx, string $name, mixed &$_this, bool $assumeObjects = false, bool $strict = false): mixed
     {
-        $helper = $cx->helpers[$name] ?? null;
-        if ($helper !== null) {
-            return static::hbch($cx, $helper, $name, [], [], $_this);
-        }
-        if ($strict) {
-            $value = static::strictLookup($_this, $name, $name);
-        } else {
-            $value = $assumeObjects ? static::nullCheck($_this, $name) : ($_this[$name] ?? null);
-            if ($value === null) {
-                return static::hbch($cx, $cx->helpers['helperMissing'], $name, [], [], $_this);
+        $value = $cx->helpers[$name] ?? null;
+        if ($value === null) {
+            if ($strict) {
+                $value = static::strictLookup($_this, $name, $name);
+            } else {
+                $value = $assumeObjects ? static::nullCheck($_this, $name) : ($_this[$name] ?? null);
+                $value ??= $cx->helpers['helperMissing'];
+            }
+            if (!$value instanceof Closure) {
+                return $value;
             }
         }
-        return $value instanceof Closure ? static::hbch($cx, $value, $name, [], [], $_this) : $value;
+        return static::hbch($cx, $value, $name, [], [], $_this);
+    }
+
+    /**
+     * Compat-mode helper-or-variable lookup for bare {{identifier}} expressions.
+     * Like hv(), checks runtime helpers first; then uses compatLookup() to walk $cx->depths
+     * before falling back to helperMissing. Only called from compat-compiled templates.
+     *
+     * @param mixed $_this current rendering context
+     */
+    public static function hvc(RuntimeContext $cx, string $name, mixed &$_this): mixed
+    {
+        $value = $cx->helpers[$name] ?? null;
+        if ($value === null) {
+            $value = static::compatLookup($cx, $_this, $name) ?? $cx->helpers['helperMissing'];
+            if (!$value instanceof Closure) {
+                return $value;
+            }
+        }
+        return static::hbch($cx, $value, $name, [], [], $_this);
+    }
+
+    /**
+     * Compat-mode depths-walk for a single key, equivalent to HBS.js container.lookup(depths, name).
+     * Checks $in first, then walks $cx->depths from closest ancestor outward.
+     * Returns null when the key cannot be resolved at any depth level.
+     * Only called from compat-compiled templates.
+     */
+    public static function compatLookup(RuntimeContext $cx, mixed $in, string $name): mixed
+    {
+        if (is_array($in) && ($value = $in[$name] ?? null) !== null) {
+            return $value;
+        }
+        for ($i = count($cx->depths) - 1; $i >= 0; $i--) {
+            $ctx = $cx->depths[$i];
+            if (is_array($ctx) && ($v = $ctx[$name] ?? null) !== null) {
+                return $v;
+            }
+        }
+        return null;
     }
 
     /**
@@ -353,11 +392,12 @@ final class Runtime
 
     /**
      * Call {{> partial}}
-     * @param mixed $context the partial's context value
      * @param array<string, mixed> $hash named hash overrides merged into the context
      * @param string $indent whitespace to prepend to each line of the partial's output
+     * @param mixed $callerIn When compat mode is enabled, the caller's current $in pushed onto depths so
+     *                        the partial can walk up to the caller's scope (mirrors HBS.js compat depths).
      */
-    public static function p(RuntimeContext $cx, ?string $name, mixed $context, array $hash, string $indent, ?Closure $partialBlock = null): string
+    public static function p(RuntimeContext $cx, ?string $name, mixed $context, array $hash, string $indent, ?Closure $partialBlock = null, mixed $callerIn = null): string
     {
         $fn = match ($name) {
             '@partial-block' => $cx->partialBlock,
@@ -390,12 +430,21 @@ final class Runtime
         }
 
         $context = $hash ? static::merge($context, $hash) : $context;
+        // In compat mode, push the caller's current context onto depths before creating the partial
+        // context so the partial can walk up to the caller's scope. createContext() (called inside
+        // the partial closure) copies $parentCx->depths, so the push must happen here, before $fn().
+        if ($callerIn !== null) {
+            $cx->depths[] = $callerIn;
+        }
         $prev = self::$partialContext;
         self::$partialContext = $cx;
         try {
             $result = $fn($context);
         } finally {
             self::$partialContext = $prev;
+            if ($callerIn !== null) {
+                array_pop($cx->depths);
+            }
             if ($partialBlock !== null) {
                 $cx->partialBlock = $currentBlock;
             }

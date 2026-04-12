@@ -2117,6 +2117,24 @@ class RegressionTest extends TestCase
                 ],
                 'expected' => "0: Page A\n1: Page B\n2: Page C",
             ],
+
+            'compat mode with assumeObjects' => [
+                'template' => "{{#outer}}Hello {{#inner}}cruel {{foo}}{{/inner}}{{/outer}}",
+                'options' => new Options(compat: true, assumeObjects: true),
+                'data' => [
+                    'foo' => 'world',
+                    'outer' => [
+                        'inner' => [['text' => 'goodbye']],
+                    ],
+                ],
+                'expected' => "Hello cruel world",
+            ],
+            'compat and strict with multi-part path' => [
+                'template' => '{{outer.inner}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['outer' => ['inner' => 'Hello']],
+                'expected' => 'Hello',
+            ],
         ];
     }
 
