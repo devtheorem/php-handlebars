@@ -46,21 +46,6 @@ final class Compiler
     private array $blockParamValues = [];
 
     /**
-     * Stack of booleans, one per active compileProgram() call.
-     * Each entry is set to true if that invocation directly emitted a $blockParams reference.
-     * Used to distinguish direct references from nested closure declarations that merely contain
-     * '$blockParams' as a parameter name in the generated string.
-     * @var bool[]
-     */
-    private array $bpRefStack = [];
-
-    /**
-     * Set when compiling a program to reflect whether that compilation directly
-     * referenced $blockParams (as opposed to nesting a closure that does).
-     */
-    private bool $lastCompileProgramHadDirectBpRef = false;
-
-    /**
      * True while compiling helper params/hash values.
      * In strict mode, helper arguments may be undefined without throwing.
      */
@@ -90,8 +75,6 @@ final class Compiler
     {
         $this->context = $context;
         $this->blockParamValues = [];
-        $this->bpRefStack = [];
-        $this->lastCompileProgramHadDirectBpRef = false;
         $this->nextProgramId = 0;
         $this->programDefs = [];
         $this->programDepStack = [[]];
@@ -133,7 +116,6 @@ final class Compiler
 
     private function compileProgram(Program $program): string
     {
-        $this->bpRefStack[] = false;
         $parts = [];
         foreach ($program->body as $statement) {
             $part = $this->accept($statement);
@@ -141,7 +123,6 @@ final class Compiler
                 $parts[] = $part;
             }
         }
-        $this->lastCompileProgramHadDirectBpRef = array_pop($this->bpRefStack);
         return $parts ? implode('.', $parts) : "''";
     }
 
@@ -213,8 +194,7 @@ final class Compiler
         $else = $inverted ? $blockFn : $this->compileProgramOrNull($block->inverse);
 
         if (!$inverted && !$this->context->options->knownHelpersOnly) {
-            $bp = $block->program->blockParams;
-            if ($block->hash !== null || $bp) {
+            if ($block->hash !== null || $block->program->blockParams) {
                 $helperExpr = self::getRuntimeFunc('resolveHelper', "\$cx, $escapedName, $var, true");
                 return $this->buildBlockHelperCall($helperExpr, $escapedName, $block, $blockFn, $else);
             }
@@ -252,7 +232,7 @@ final class Compiler
 
     /**
      * Build the use() clause string for an inline partial body closure.
-     * Prepends $blockParams when inside a block-param scope (marking bpRefStack),
+     * Prepends $blockParams when inside a block-param scope,
      * then appends any hoisted program deps added since $depsBefore.
      */
     private function buildInlineUseClause(int $depsBefore): string
@@ -260,9 +240,6 @@ final class Compiler
         $bodyDeps = array_slice($this->programDepStack[array_key_last($this->programDepStack)], $depsBefore);
         $vars = [];
         if ($this->blockParamValues) {
-            if ($this->bpRefStack) {
-                $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
-            }
             $vars[] = '$blockParams';
         }
         return implode(', ', array_merge($vars, $bodyDeps));
@@ -285,7 +262,11 @@ final class Compiler
             array_shift($this->blockParamValues);
         }
 
-        $usesBp = $bp || $this->lastCompileProgramHadDirectBpRef;
+        // Include $blockParams in the signature when this program declares block params OR when it
+        // is nested inside a block-param scope. In the latter case the body may reference
+        // $blockParams (e.g. via buildBlockHelperCall passing it as the outer-bp arg), and callers
+        // always pass the current bp stack as the third argument anyway.
+        $usesBp = $bp || $this->blockParamValues;
         $preamble = '';
         if (str_contains($body, '$cx->depths[count($cx->depths)-')) {
             $preamble = '$sc=count($cx->depths);';
@@ -610,11 +591,6 @@ final class Compiler
             if ($bp !== null) {
                 [$bpDepth, $bpIndex] = $bp;
                 $bpBase = "\$blockParams[$bpDepth][$bpIndex]";
-                // Mark the current compileProgram() level as having a direct $blockParams reference.
-                if ($this->bpRefStack) {
-                    $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
-                }
-
                 // Skip the block param name since it has been resolved to a $blockParams index.
                 $keys = $isLength ? array_slice($path->tail, 0, -1) : $path->tail;
                 $lookup = $this->compileModeAwareLookup($bpBase, $keys, $path->original);
@@ -868,10 +844,6 @@ final class Compiler
 
     private function buildBlockHelperCall(string $helperExpr, string $escapedName, BlockStatement $block, string $fn, string $else): string
     {
-        // Mark the enclosing closure as needing $blockParams in its signature.
-        if ($this->blockParamValues && $this->bpRefStack) {
-            $this->bpRefStack[array_key_last($this->bpRefStack)] = true;
-        }
         $outerBp = $this->blockParamValues ? '$blockParams' : '[]';
         $bpCount = count(($block->program ?? $block->inverse)->blockParams ?? []);
         $params = $this->compileParams($block->params, $block->hash);
@@ -938,7 +910,6 @@ final class Compiler
     private function compileProgramOrNull(?Program $program): string
     {
         if (!$program) {
-            $this->lastCompileProgramHadDirectBpRef = false;
             return 'null';
         }
         return $this->compileProgramWithBlockParams($program);
@@ -947,7 +918,6 @@ final class Compiler
     private function compileProgramOrEmpty(?Program $program): string
     {
         if (!$program) {
-            $this->lastCompileProgramHadDirectBpRef = false;
             return "''";
         }
         return $this->compileProgram($program);
