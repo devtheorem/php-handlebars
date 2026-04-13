@@ -248,7 +248,9 @@ $renderer = Handlebars::template($php);
 
 // Warm up
 for ($i = 0; $i < 50; $i++) {
+    echo "Render $i...";
     $renderer($data, ['helpers' => $helpers, 'partials' => $partials]);
+    echo "complete\n";
 }
 
 memory_reset_peak_usage();
