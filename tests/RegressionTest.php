@@ -1457,6 +1457,28 @@ class RegressionTest extends TestCase
                 'expected' => "NO\n",
             ],
 
+            'GH-1716: should strip trailing indent from chained else if blocks' => [
+                'template' => "{{#if a}}\n {{#if a.b}}\n no\n {{else if a.b}}\n no\n {{else}}\n yes\n {{/if}}\n after\n{{/if}}",
+                'data' => ['a' => ['c' => true]],
+                'expected' => " yes\n after\n",
+            ],
+
+            'GH-2031: whitespace control in one else if branch should not affect another branch' => [
+                'template' => "{{#if a}}\na\n{{else if b}}\nb\n{{else if c}}\nc\n{{~else if d}}\nd\n{{else if e}}\ne\n{{else if f}}\nf{{/if}}",
+                'data' => ['c' => 1],
+                'expected' => 'c',
+            ],
+            'GH-2031: whitespace control in one else if branch should not affect another branch (2)' => [
+                'template' => "{{#if a}}\na\n{{else if b}}\nb\n{{else if c}}\nc\n{{~else if d}}\nd\n{{else if e}}\ne\n{{else if f}}\nf{{/if}}",
+                'data' => ['d' => 1],
+                'expected' => "d\n",
+            ],
+            'GH-2031: whitespace control in one else if branch should not affect another branch (3)' => [
+                'template' => "{{#if a}}\na\n{{else if b}}\nb\n{{else if c}}\nc\n{{~else if d}}\nd\n{{else if e}}\ne\n{{else if f}}\nf{{/if}}",
+                'data' => ['e' => 1],
+                'expected' => "e\n",
+            ],
+
             'each with leading whitespace' => [
                 'template' => "  {{#each foo}}\n{{@key}}: {{.}}\n{{/each}}\nDONE",
                 'data' => ['foo' => ['a' => 'A', 'b' => 'BOY!']],
@@ -2234,6 +2256,11 @@ class RegressionTest extends TestCase
                 'template' => '{{#each items as |item|}}{{item.nested.length}}{{/each}}',
                 'data' => ['items' => [['nested' => [1, 2]]]],
                 'expected' => '2',
+            ],
+            'associative array with length key' => [
+                'template' => '{{foo.length}}',
+                'data' => ['foo' => ['length' => 'bar']],
+                'expected' => 'bar',
             ],
         ];
     }
