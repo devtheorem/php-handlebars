@@ -33,12 +33,8 @@ class HandlebarsSpecTest extends TestCase
 
         // 5. Not supported case: misc
         if (
-            // compat mode
-            $spec['description'] === 'blocks - compat mode'
-            || $spec['description'] === 'partials - compat mode'
-
             // stringParams mode was removed from Handlebars in 2015
-            || isset($spec['compileOptions']['stringParams'])
+            isset($spec['compileOptions']['stringParams'])
 
             // Decorators are deprecated: https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md
             || $spec['description'] === 'blocks - decorators'
@@ -91,6 +87,7 @@ class HandlebarsSpecTest extends TestCase
             $explicitPartialContext = $spec['compileOptions']['explicitPartialContext'] ?? false;
 
             $php = Handlebars::precompile($spec['template'], new Options(
+                compat: $spec['compileOptions']['compat'] ?? false,
                 knownHelpers: $spec['compileOptions']['knownHelpers'] ?? [],
                 knownHelpersOnly: $knownHelpersOnly,
                 strict: $strict,

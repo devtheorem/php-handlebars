@@ -432,10 +432,16 @@ final class Compiler
         // appendContent opcode) and invoke the partial with an empty indent so its lines are
         // not additionally indented.
         if ($this->context->options->preventIndent && $statement->indent !== '') {
-            return "$indent." . self::getRuntimeFunc('p', "\$cx, $p, $vars, ''");
+            $prepend = $indent . '.';
+            $indent = "''";
+        } else {
+            $prepend = '';
         }
 
-        return self::getRuntimeFunc('p', "\$cx, $p, $vars, $indent");
+        // In compat mode, pass the caller's $in so the partial inherits the full context chain.
+        $compatArg = $this->context->options->compat ? ', null, $in' : '';
+
+        return $prepend . self::getRuntimeFunc('p', "\$cx, $p, $vars, $indent$compatArg");
     }
 
     private function PartialBlockStatement(PartialBlockStatement $statement): string
@@ -487,7 +493,8 @@ final class Compiler
             $parts[] = "(isset(\$cx->inlinePartials[$p]) || isset(\$cx->partials[$p]) ? '' : "
                 . self::getRuntimeFunc('in', "\$cx, $p, $bodyClosure") . ')';
         }
-        $parts[] = self::getRuntimeFunc('p', "\$cx, $p, $vars, '', $bodyClosure");
+        $compatArg = $this->context->options->compat ? ', $in' : '';
+        $parts[] = self::getRuntimeFunc('p', "\$cx, $p, $vars, '', $bodyClosure$compatArg");
         return implode('.', $parts);
     }
 
@@ -516,13 +523,11 @@ final class Compiler
             $escapedKey = self::quote($helperName);
             $isData = $path instanceof PathExpression && $path->data;
             $scope = $isData ? '$cx->data' : '$in';
-            $hvArgs = "\$cx, $escapedKey, $scope";
-            if ($this->context->options->assumeObjects) {
-                $hvArgs .= ', true';
-            } elseif ($this->context->options->strict) {
-                $hvArgs .= ', false, true';
-            }
-            return self::getRuntimeFunc($fn, self::getRuntimeFunc('hv', $hvArgs));
+            $assumeObjects = $this->context->options->assumeObjects ? 'true' : 'false';
+            $strict = $this->context->options->strict ? 'true' : 'false';
+            // @data vars are never depth-walked in compat mode.
+            $compat = ($this->context->options->compat && !$isData) ? 'true' : 'false';
+            return self::getRuntimeFunc($fn, self::getRuntimeFunc('hv', "\$cx, $escapedKey, $scope, $assumeObjects, $strict, $compat"));
         }
 
         // Simple: direct path lookup with lambda resolution.
@@ -531,7 +536,7 @@ final class Compiler
         // For all other simple paths (multi-segment, scoped, depth, data): use dv() with zero args,
         // matching HBS.js container.lambda which also passes no positional arguments.
         if ($path instanceof PathExpression) {
-            if ($helperName !== null && !$path->data && $this->context->options->knownHelpersOnly) {
+            if ($helperName !== null && !$path->data && $this->context->options->knownHelpersOnly && !$this->context->options->compat) {
                 $cvArgs = '$in, ' . self::quote($helperName) . ($this->context->options->strict ? ', true' : '');
                 return self::getRuntimeFunc($fn, self::getRuntimeFunc('cv', $cvArgs));
             }
@@ -584,9 +589,11 @@ final class Compiler
         }
 
         $isLength = end($stringParts) === 'length';
+        $isCurrentContextPath = !$hasSubExprHead && !$data && $depth === 0;
+        $scoped = $isCurrentContextPath && self::scopedId($path);
 
         // Check block params (depth-0, non-data, non-scoped paths only, not SubExpression-headed)
-        if (!$hasSubExprHead && !$data && $depth === 0 && !self::scopedId($path)) {
+        if ($isCurrentContextPath && !$scoped) {
             $bp = $this->lookupBlockParam($path->head);
             if ($bp !== null) {
                 [$bpDepth, $bpIndex] = $bp;
@@ -604,11 +611,11 @@ final class Compiler
         if ($isLength) {
             $partsExceptLength = array_slice($stringParts, 0, -1);
             return $this->buildLookupLength(
-                $this->compileModeAwareLookup($base, $partsExceptLength, $path->original),
+                $this->compileModeAwareLookup($base, $partsExceptLength, $path->original, $scoped),
             );
         }
 
-        return $this->compileModeAwareLookup($base, $stringParts, $path->original);
+        return $this->compileModeAwareLookup($base, $stringParts, $path->original, $scoped);
     }
 
     /**
@@ -933,10 +940,25 @@ final class Compiler
      * Compile a mode-aware path access expression for the given base and parts.
      * @param string[] $parts
      */
-    private function compileModeAwareLookup(string $base, array $parts, string $original): string
+    private function compileModeAwareLookup(string $base, array $parts, string $original, bool $scoped = false): string
     {
         if (!$parts) {
             return $base;
+        }
+        // Compat mode: walk the scope chain for parts[0] instead of looking up in $in directly.
+        // For single-part strict paths, use compatStrictLookup (throws on miss); all other paths
+        // use compatLookup (null falls through to the next depth), matching HBS.js container.lookup.
+        if ($this->context->options->compat && $base === '$in' && !$scoped) {
+            $escapedName = self::quote($parts[0]);
+            array_shift($parts);
+            $lookupFn = (!$parts && $this->context->options->strict && !$this->compilingHelperArgs)
+                ? 'compatStrictLookup'
+                : 'compatLookup';
+            $base = self::getRuntimeFunc($lookupFn, '$cx, $in, ' . $escapedName);
+            if (!$parts) {
+                return $base;
+            }
+            // Multi-part: $base is now the compat-resolved root; fall through to mode dispatch below.
         }
         if ($this->context->options->assumeObjects || ($this->context->options->strict && $this->compilingHelperArgs)) {
             // Use nullCheck chain for assumeObjects and helper arguments in strict mode.

@@ -15,6 +15,7 @@ final readonly class Options
      * @param null|Closure(string):(string|null) $partialResolver
      */
     public function __construct(
+        public bool $compat = false,
         array $knownHelpers = [],
         public bool $knownHelpersOnly = false,
         public bool $noEscape = false,

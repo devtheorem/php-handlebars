@@ -207,6 +207,17 @@ class ErrorTest extends TestCase
                 'template' => '{{#each}}OK!{{/each}}',
                 'expected' => 'Must pass iterator to #each',
             ],
+            'compat+strict: multi-part path, missing property should throw' => [
+                'template' => '{{foo.bar}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['foo' => []],
+                'expected' => '"foo.bar" not defined',
+            ],
+            'compat+assumeObjects: multi-part path, intermediate missing should throw' => [
+                'template' => '{{foo.bar}}',
+                'options' => new Options(compat: true, assumeObjects: true),
+                'expected' => 'Cannot access property "bar" on null',
+            ],
             'assumeObjects mode should throw on null block param intermediate' => [
                 'template' => '{{#each items as |item|}}{{item.nested.val}}{{/each}}',
                 'options' => new Options(assumeObjects: true),

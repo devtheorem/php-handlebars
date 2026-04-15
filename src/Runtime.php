@@ -33,7 +33,7 @@ final class Runtime
                 /** @var HelperOptions $options */
                 $options = $args[1];
                 $condition = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
-                return static::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
+                return self::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
                     ? $options->fn($options->scope)
                     : $options->inverse($options->scope);
             },
@@ -44,7 +44,7 @@ final class Runtime
                 /** @var HelperOptions $options */
                 $options = $args[1];
                 $condition = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
-                return static::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
+                return self::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
                     ? $options->inverse($options->scope)
                     : $options->fn($options->scope);
             },
@@ -69,7 +69,7 @@ final class Runtime
                 /** @var HelperOptions $options */
                 $options = $args[1];
                 $context = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
-                if (static::ifvar($context)) {
+                if (self::ifvar($context)) {
                     return $options->fn($context, ['blockParams' => [$context]]);
                 }
                 return $options->inverse($options->scope);
@@ -142,7 +142,7 @@ final class Runtime
     /**
      * Terminal .length lookup: returns count() for arrays (since PHP arrays have no native .length
      * property), an explicit 'length' key if present, or null for non-array bases.
-     * When $strict is true, throws for any non-array base, mirroring HBS.js strict-mode behaviour.
+     * When $strict is true, throws for any non-array base, mirroring HBS.js strict-mode behavior.
      */
     public static function lookupLength(mixed $base, bool $strict = false): mixed
     {
@@ -214,12 +214,10 @@ final class Runtime
      * Looks up $name in $_this; if the value is a Closure, invokes it with $_this as a positional arg
      * (PHP equivalent of JS fn.call(context), where context binds as `this` with no positional args).
      * When $strict is true, throws for missing keys.
-     *
-     * @param mixed $_this current rendering context
      */
     public static function cv(mixed &$_this, string $name, bool $strict = false): mixed
     {
-        $v = $strict ? static::strictLookup($_this, $name, $name) : ($_this[$name] ?? null);
+        $v = $strict ? self::strictLookup($_this, $name, $name) : ($_this[$name] ?? null);
         return $v instanceof Closure ? $v($_this) : $v;
     }
 
@@ -229,24 +227,66 @@ final class Runtime
      * In non-strict mode: falls back to helperMissing when the context value is null.
      * When $assumeObjects is true, uses nullCheck for context lookup (throws on null context).
      * When $strict is true, uses strictLookup after the helper check (throws for missing keys; no helperMissing fallback).
-     *
-     * @param mixed $_this current rendering context
+     * When $compat is true, uses compatLookup() to walk $cx->depths instead of looking up directly in $_this.
      */
-    public static function hv(RuntimeContext $cx, string $name, mixed &$_this, bool $assumeObjects = false, bool $strict = false): mixed
+    public static function hv(RuntimeContext $cx, string $name, mixed &$_this, bool $assumeObjects, bool $strict, bool $compat): mixed
     {
-        $helper = $cx->helpers[$name] ?? null;
-        if ($helper !== null) {
-            return static::hbch($cx, $helper, $name, [], [], $_this);
-        }
-        if ($strict) {
-            $value = static::strictLookup($_this, $name, $name);
-        } else {
-            $value = $assumeObjects ? static::nullCheck($_this, $name) : ($_this[$name] ?? null);
-            if ($value === null) {
-                return static::hbch($cx, $cx->helpers['helperMissing'], $name, [], [], $_this);
+        $value = $cx->helpers[$name] ?? null;
+        if ($value === null) {
+            if ($compat) {
+                $value = $strict
+                    ? self::compatStrictLookup($cx, $_this, $name)
+                    : self::compatLookup($cx, $_this, $name);
+            } elseif ($strict) {
+                $value = self::strictLookup($_this, $name, $name);
+            } else {
+                $value = $assumeObjects ? self::nullCheck($_this, $name) : ($_this[$name] ?? null);
+            }
+            if (!$strict) {
+                $value ??= $cx->helpers['helperMissing'];
+            }
+            if (!$value instanceof Closure) {
+                return $value;
             }
         }
-        return $value instanceof Closure ? static::hbch($cx, $value, $name, [], [], $_this) : $value;
+        return self::hbch($cx, $value, $name, [], [], $_this);
+    }
+
+    /**
+     * Non-strict compat depths-walk for a single key, equivalent to HBS.js container.lookup(depths, name).
+     * Checks $in first, then walks $cx->depths from the closest ancestor outward.
+     * Null values are skipped (treated as not found), matching HBS.js container.lookup's `result != null` check.
+     */
+    public static function compatLookup(RuntimeContext $cx, mixed $in, string $name): mixed
+    {
+        if (is_array($in) && ($value = $in[$name] ?? null) !== null) {
+            return $value;
+        }
+        for ($i = count($cx->depths) - 1; $i >= 0; $i--) {
+            $ctx = $cx->depths[$i];
+            if (is_array($ctx) && ($v = $ctx[$name] ?? null) !== null) {
+                return $v;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Strict compat depths-walk for a single key, equivalent to HBS.js container.strictLookup(depths, name, loc).
+     * Checks $in first, then walks $cx->depths from the closest ancestor outward.
+     * Null values are treated as defined (array_key_exists), matching HBS.js container.strictLookup's `name in d` check.
+     */
+    public static function compatStrictLookup(RuntimeContext $cx, mixed $in, string $name): mixed
+    {
+        if (is_array($in) && array_key_exists($name, $in)) {
+            return self::strictLookup($in, $name, $name);
+        }
+        for ($i = count($cx->depths) - 1; $i >= 0; $i--) {
+            if (is_array($cx->depths[$i]) && array_key_exists($name, $cx->depths[$i])) {
+                return self::strictLookup($cx->depths[$i], $name, $name);
+            }
+        }
+        return self::strictLookup(null, $name, $name);
     }
 
     /**
@@ -271,7 +311,7 @@ final class Runtime
             return (string) $var;
         }
 
-        return Handlebars::escapeExpression(static::raw($var));
+        return Handlebars::escapeExpression(self::raw($var));
     }
 
     /**
@@ -291,7 +331,7 @@ final class Runtime
             if (array_is_list($value)) {
                 $ret = '';
                 foreach ($value as $vv) {
-                    $ret .= static::raw($vv) . ',';
+                    $ret .= self::raw($vv) . ',';
                 }
                 return substr($ret, 0, -1);
             } else {
@@ -316,7 +356,7 @@ final class Runtime
     {
         $helper = $helperName !== null ? ($cx->helpers[$helperName] ?? null) : null;
         if ($helper !== null) {
-            return static::hbbch($cx, $helper, $helperName, [], [], $in, $cb, $else, $outerBlockParams);
+            return self::hbbch($cx, $helper, $helperName, [], [], $in, $cb, $else, $outerBlockParams);
         }
 
         // Lambda functions in block position: simple-path identifiers ($helperName set) receive
@@ -326,10 +366,10 @@ final class Runtime
             $result = $helperName !== null
                 ? $value(new HelperOptions(scope: $in, data: $cx->data, cx: $cx, cb: $cb, inv: $else))
                 : $value();
-            return static::resolveBlockResult($cx, $result, $in, $cb, $else);
+            return self::resolveBlockResult($cx, $result, $in, $cb, $else);
         }
 
-        return static::hbbch($cx, $cx->helpers['blockHelperMissing'], $helperName ?? '', [$value], [], $in, $cb, $else, $outerBlockParams);
+        return self::hbbch($cx, $cx->helpers['blockHelperMissing'], $helperName ?? '', [$value], [], $in, $cb, $else, $outerBlockParams);
     }
 
     /**
@@ -353,11 +393,12 @@ final class Runtime
 
     /**
      * Call {{> partial}}
-     * @param mixed $context the partial's context value
      * @param array<string, mixed> $hash named hash overrides merged into the context
      * @param string $indent whitespace to prepend to each line of the partial's output
+     * @param mixed $callerIn When compat mode is enabled, the caller's current $in pushed onto depths so
+     *                        the partial can walk up to the caller's scope (mirrors HBS.js compat depths).
      */
-    public static function p(RuntimeContext $cx, ?string $name, mixed $context, array $hash, string $indent, ?Closure $partialBlock = null): string
+    public static function p(RuntimeContext $cx, ?string $name, mixed $context, array $hash, string $indent, ?Closure $partialBlock = null, mixed $callerIn = null): string
     {
         $fn = match ($name) {
             '@partial-block' => $cx->partialBlock,
@@ -389,13 +430,22 @@ final class Runtime
             };
         }
 
-        $context = $hash ? static::merge($context, $hash) : $context;
+        $context = $hash ? self::merge($context, $hash) : $context;
+        // In compat mode, push the caller's current context onto depths before creating the partial
+        // context so the partial can walk up to the caller's scope. createContext() (called inside
+        // the partial closure) copies $parentCx->depths, so the push must happen here, before $fn().
+        if ($callerIn !== null) {
+            $cx->depths[] = $callerIn;
+        }
         $prev = self::$partialContext;
         self::$partialContext = $cx;
         try {
             $result = $fn($context);
         } finally {
             self::$partialContext = $prev;
+            if ($callerIn !== null) {
+                array_pop($cx->depths);
+            }
             if ($partialBlock !== null) {
                 $cx->partialBlock = $currentBlock;
             }
@@ -433,7 +483,7 @@ final class Runtime
      * Resolve a helper by name: optionally check the helper registry, then the pre-resolved
      * callable, then fall back to helperMissing. Throws if a non-null, non-Closure value is found.
      * Pass $checkHelpers = false for scoped (./), depth (../), and data (@) paths, which resolve
-     * from context only, matching HBS.js behaviour.
+     * from context only, matching HBS.js behavior.
      */
     public static function resolveHelper(RuntimeContext $cx, string $name, mixed $callable, bool $checkHelpers): Closure
     {
@@ -454,7 +504,6 @@ final class Runtime
      *
      * @param array<mixed> $positional
      * @param array<string, mixed> $hash
-     * @param mixed $_this current rendering context for the helper
      */
     public static function hbch(RuntimeContext $cx, Closure $helper, string $name, array $positional, array $hash, mixed &$_this): mixed
     {
@@ -507,7 +556,7 @@ final class Runtime
             inv: $else,
             outerBlockParams: $outerBlockParams,
         );
-        return static::resolveBlockResult($cx, $helper(...$positional), $_this, $cb, $else);
+        return self::resolveBlockResult($cx, $helper(...$positional), $_this, $cb, $else);
     }
 
     /**
@@ -528,6 +577,6 @@ final class Runtime
         if ($cb === null) {
             return ''; // can occur when compiled from an inverted block helper (e.g. {{^helper}}...{{/helper}})
         }
-        return static::hbbch($cx, $cx->helpers['blockHelperMissing'], '', [$result], [], $_this, $cb, $else);
+        return self::hbbch($cx, $cx->helpers['blockHelperMissing'], '', [$result], [], $_this, $cb, $else);
     }
 }

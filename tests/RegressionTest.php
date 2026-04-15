@@ -2117,6 +2117,132 @@ class RegressionTest extends TestCase
                 ],
                 'expected' => "0: Page A\n1: Page B\n2: Page C",
             ],
+
+            'compat+assumeObjects: variable from outer scope in nested block' => [
+                'template' => "{{#outer}}Hello {{#inner}}cruel {{foo}}{{/inner}}{{/outer}}",
+                'options' => new Options(compat: true, assumeObjects: true),
+                'data' => [
+                    'foo' => 'world',
+                    'outer' => ['inner' => [['text' => 'goodbye']]],
+                ],
+                'expected' => "Hello cruel world",
+            ],
+            'compat+assumeObjects: multi-part path inside block, first segment from parent' => [
+                'template' => "{{#each items}}{{foo.bar}}{{/each}}",
+                'options' => new Options(compat: true, assumeObjects: true),
+                'data' => [
+                    'foo' => ['bar' => 'yes'],
+                    'items' => [[]],
+                ],
+                'expected' => "yes",
+            ],
+            'compat+strict: multi-part path should work' => [
+                'template' => '{{outer.inner}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['outer' => ['inner' => 'Hello']],
+                'expected' => 'Hello',
+            ],
+            'compat+strict: items array passed as {{#each}} arg from root context' => [
+                'template' => '{{#each items}}{{.}}{{/each}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['items' => ['a', 'b']],
+                'expected' => 'ab',
+            ],
+            'compat+strict: root-level block lookup with depths-walk inside body' => [
+                'template' => '{{#outer}}Hello {{#inner}}cruel {{foo}}{{/inner}}{{/outer}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => [
+                    'foo' => 'world',
+                    'outer' => [
+                        'inner' => [['text' => 'goodbye']],
+                    ],
+                ],
+                'expected' => 'Hello cruel world',
+            ],
+            'compat+strict: {{#with}} arg from root context, inner body accesses parent via depths' => [
+                'template' => '{{#with inner}}{{foo}}{{/with}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['inner' => ['x' => 1], 'foo' => 'bar'],
+                'expected' => 'bar',
+            ],
+            'compat+strict: multi-part path as {{#each}} arg still resolves correctly' => [
+                'template' => '{{#each foo.items}}{{.}}{{/each}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['foo' => ['items' => ['x', 'y']]],
+                'expected' => 'xy',
+            ],
+            'compat+strict: multi-part path inside block body resolves first segment from parent' => [
+                'template' => '{{#each foo.list}}{{bar.baz}}{{/each}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['bar' => ['baz' => 'found'], 'foo' => ['list' => [[]]]],
+                'expected' => 'found',
+            ],
+            'compat+strict: null block value in context is found, not thrown' => [
+                'template' => '{{#foo}}yes{{else}}no{{/foo}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['foo' => null],
+                'expected' => 'no',
+            ],
+            'compat+strict: missing property in context falls through to parent' => [
+                'template' => '{{#each items}}{{name}}{{/each}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['name' => 'root', 'items' => [[]]],
+                'expected' => 'root',
+            ],
+            'compat+strict: missing multi-part path uses depths walk for first segment' => [
+                'template' => '{{#with child}}{{name.first}}{{/with}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['name' => ['first' => 'root'], 'child' => ['name' => null]],
+                'expected' => 'root',
+            ],
+            'compat+strict: explicitly null property in context returned directly' => [
+                'template' => '{{#each items}}{{name}}{{/each}}',
+                'options' => new Options(compat: true, strict: true),
+                'data' => ['name' => 'root', 'items' => [['name' => null]]],
+                'expected' => '',
+            ],
+            'compat+assumeObjects: compat depths-walk works for null items' => [
+                'template' => '{{#each items}}{{name}}{{/each}}',
+                'options' => new Options(compat: true, assumeObjects: true),
+                'data' => ['name' => 'root', 'items' => [null]],
+                'expected' => 'root',
+            ],
+            'compat+knownHelpersOnly: resolves variable in parent context inside each block' => [
+                'template' => '{{#each items}}{{name}}{{/each}}',
+                'options' => new Options(compat: true, knownHelpersOnly: true),
+                'data' => ['name' => 'World', 'items' => [[]]],
+                'expected' => 'World',
+            ],
+            'compat: @data path is not depth-walked into context' => [
+                'template' => '{{#with inner}}{{@key}}{{/with}}',
+                'options' => new Options(compat: true),
+                'data' => ['key' => 'wrong', 'inner' => ['x' => 1]],
+                'expected' => '',
+            ],
+            'compat: scoped path (./name) uses current context, not depths' => [
+                'template' => '{{#each items}}{{./name}}{{/each}}',
+                'options' => new Options(compat: true),
+                'data' => ['name' => 'parent', 'items' => [['x' => 1]]],
+                'expected' => '',
+            ],
+            'compat: scoped path (./name) finds key when it exists in current context' => [
+                'template' => '{{#each items}}{{./name}}{{/each}}',
+                'options' => new Options(compat: true),
+                'data' => ['name' => 'parent', 'items' => [['name' => 'child']]],
+                'expected' => 'child',
+            ],
+            'compat: explicit depth path resolves from parent context directly' => [
+                'template' => '{{#with inner}}{{../name}}{{/with}}',
+                'options' => new Options(compat: true),
+                'data' => ['name' => 'correct', 'inner' => ['name' => 'wrong']],
+                'expected' => 'correct',
+            ],
+            'compat: block param property lookup does not compat-walk to parent' => [
+                'template' => '{{#each items as |item|}}{{item.name}}{{/each}}',
+                'options' => new Options(compat: true),
+                'data' => ['name' => 'wrong', 'items' => [[]]],
+                'expected' => '',
+            ],
         ];
     }
 
