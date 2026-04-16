@@ -12,7 +12,7 @@ use DevTheorem\Handlebars\Options;
 
 require __DIR__ . '/../vendor/autoload.php';
 
-$iterations = (int) ($argv[1] ?? 1000);
+$iterations = (int) ($argv[1] ?? 1);
 
 // A large, complex template exercising as many syntax features as possible.
 $template = loadTemplate('large-page');
@@ -84,27 +84,9 @@ $options = new Options(
     knownHelpersOnly: $knownHelpersOnly,
 );
 
-// Warm up: give the JIT a chance to compile hot paths before we measure.
-for ($i = 0; $i < 50; $i++) {
-    Handlebars::precompile($template, $options);
-    foreach ($partialTemplates as $src) {
-        Handlebars::precompile($src, $options);
-    }
-}
-
 memory_reset_peak_usage();
 $start = hrtime(true);
 
-for ($i = 0; $i < $iterations; $i++) {
-    Handlebars::precompile($template, $options);
-    foreach ($partialTemplates as $src) {
-        Handlebars::precompile($src, $options);
-    }
-}
-
-$elapsed = (hrtime(true) - $start) / 1e9;
-$compilePeakMB = memory_get_peak_usage() / 1024 / 1024;
-$perParse = $elapsed / $iterations * 1000;
 $php = Handlebars::precompile($template, $options);
 $codeBytes = strlen($php);
 $partials = [];
@@ -114,6 +96,10 @@ foreach ($partialTemplates as $name => $src) {
     $codeBytes += strlen($code);
     $partials[$name] = Handlebars::template($code);
 }
+
+$elapsed = (hrtime(true) - $start) / 1e9;
+$compilePeakMB = memory_get_peak_usage() / 1024 / 1024;
+$perParse = $elapsed / $iterations * 1000;
 
 printf(
     "Compiled %d times  |  %.2f ms/compile  |  %6.1f KB code    |  %.1f MB peak\n",
@@ -248,7 +234,9 @@ $renderer = Handlebars::template($php);
 
 // Warm up
 for ($i = 0; $i < 50; $i++) {
+    echo "Render $i...";
     $renderer($data, ['helpers' => $helpers, 'partials' => $partials]);
+    echo "complete\n";
 }
 
 memory_reset_peak_usage();
