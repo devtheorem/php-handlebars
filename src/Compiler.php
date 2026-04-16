@@ -346,14 +346,13 @@ final class Compiler
     private function compileConditionalExpr(Expression $condExpr, bool $negate): string
     {
         $part = $condExpr instanceof PathExpression ? ($condExpr->parts[0] ?? null) : null;
-        if ($condExpr instanceof PathExpression
-            && !$condExpr->data
+        $isSimplePath = $condExpr instanceof PathExpression
             && $condExpr->depth === 0
             && is_string($part)
-            && count($condExpr->parts) === 1
-            && !self::scopedId($condExpr)
-            && $this->lookupBlockParam($part) === null
-        ) {
+            && count($condExpr->parts) === 1;
+        if ($isSimplePath && $condExpr->data) {
+            $val = self::getRuntimeFunc('dv', $this->compileExpression($condExpr));
+        } elseif ($isSimplePath && !self::scopedId($condExpr) && $this->lookupBlockParam($part) === null) {
             $val = self::getRuntimeFunc('cv', '$in, ' . self::quote($part));
         } else {
             $savedHelperArgs = $this->compilingHelperArgs;

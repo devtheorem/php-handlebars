@@ -1846,6 +1846,12 @@ class RegressionTest extends TestCase
                 'data' => ['items' => [['name' => 'Item', 'falsy' => false]], 'name' => 'Root'],
                 'expected' => 'Root',
             ],
+
+            'closure in @data variable passed to if is invoked' => [
+                'template' => '{{#if @foo}}bad{{else}}Executed with no args{{/if}}',
+                'vars' => ['foo' => fn(...$args) => count($args)],
+                'expected' => 'Executed with no args',
+            ],
         ];
     }
 
