@@ -14,8 +14,6 @@ final class Runtime
 {
     /** @var array<string, Closure>|null */
     private static ?array $defaultHelpers = null;
-    /** Parent RuntimeContext during a user-partial invocation, null at top level. */
-    private static ?RuntimeContext $partialContext = null;
 
     /**
      * Default implementations of the built-in Handlebars helpers.
@@ -165,20 +163,20 @@ final class Runtime
     /**
      * Build a RuntimeContext from raw render options and compile-time partial closures.
      *
-     * @param RenderOptions $options
+     * @param RenderOptions|array{_cx?: RuntimeContext} $options
      * @param array<string, Closure> $compiledPartials
      */
     public static function createContext(mixed $context, array $options, array $compiledPartials): RuntimeContext
     {
-        $parentCx = self::$partialContext;
+        $parentCx = $options['_cx'] ?? null;
 
         if ($parentCx !== null) {
             // Partial context: reuse the parent's already-merged helpers and partials directly.
             // PHP copy-on-write ensures inlinePartials is only copied if the partial registers a new {{#* inline}} partial.
-            // Inherit the parent's current data so @index, @key, etc. remain accessible inside partials.
+            // p() always passes the caller's current data frame via options, so partials inherit @index, @key, etc.
             // Unset 'root' first to break the reference established by `$in = &$cx->data['root']` in the
             // calling template; a direct assignment would write through it and corrupt the caller's $in.
-            $data = $parentCx->data;
+            $data = $options['data'] ?? [];
             unset($data['root']);
             $data['root'] = $context;
             return new RuntimeContext(
@@ -187,12 +185,11 @@ final class Runtime
                 inlinePartials: $parentCx->inlinePartials,
                 depths: $parentCx->depths,
                 data: $data,
-                partialBlock: $parentCx->partialBlock,
             );
         }
 
         $data = $options['data'] ?? [];
-        $data['root'] = $data['root'] ?? $context;
+        $data['root'] ??= $context;
         $extraHelpers = $options['helpers'] ?? [];
         return new RuntimeContext(
             helpers: $extraHelpers ? array_replace(Runtime::defaultHelpers(), $extraHelpers) : Runtime::defaultHelpers(),
@@ -392,7 +389,7 @@ final class Runtime
     }
 
     /**
-     * Call {{> partial}}
+     * Equivalent to invokePartial in the Handlebars.js runtime.
      * @param array<string, mixed> $hash named hash overrides merged into the context
      * @param string $indent whitespace to prepend to each line of the partial's output
      * @param mixed $callerIn When compat mode is enabled, the caller's current $in pushed onto depths so
@@ -401,7 +398,8 @@ final class Runtime
     public static function p(RuntimeContext $cx, ?string $name, mixed $context, array $hash, string $indent, ?Closure $partialBlock = null, mixed $callerIn = null): string
     {
         $fn = match ($name) {
-            '@partial-block' => $cx->partialBlock,
+            // @partial-block is resolved from data, mirroring HBS.js resolvePartial
+            '@partial-block' => $cx->data['partial-block'] ?? null,
             // name can be null if a dynamic partial doesn't resolve to anything
             null => null,
             // inlinePartials (block-scoped {{#* inline}}) take precedence over partials (persistent),
@@ -415,18 +413,14 @@ final class Runtime
         }
 
         // Install a wrapper as the active @partial-block so the partial can invoke it via {{> @partial-block}}.
-        // The wrapper temporarily restores the previously active block before calling $partialBlock,
-        // allowing nested partial blocks to correctly resolve their own @partial-block.
+        // Mirrors HBS.js invokePartial: the wrapper receives the current data frame, restores partial-block to
+        // currentPartialBlock (captured from the closure), then calls the block content with that frame.
         if ($partialBlock !== null) {
-            $currentBlock = $cx->partialBlock;
-            $cx->partialBlock = static function (mixed $blockContext) use ($partialBlock, $currentBlock): string {
-                $callingCx = self::$partialContext;
-                assert($callingCx !== null);
-                $saved = $callingCx->partialBlock;
-                $callingCx->partialBlock = $currentBlock;
-                $result = $partialBlock($blockContext);
-                $callingCx->partialBlock = $saved;
-                return $result;
+            $currentBlock = $cx->data['partial-block'] ?? null;
+            $cx->data['partial-block'] = static function (mixed $context = null, array $options = []) use ($partialBlock, $currentBlock): string {
+                $options['data'] ??= [];
+                $options['data']['partial-block'] = $currentBlock;
+                return $partialBlock($context, $options);
             };
         }
 
@@ -437,17 +431,14 @@ final class Runtime
         if ($callerIn !== null) {
             $cx->depths[] = $callerIn;
         }
-        $prev = self::$partialContext;
-        self::$partialContext = $cx;
         try {
-            $result = $fn($context);
+            $result = $fn($context, ['data' => $cx->data, '_cx' => $cx]);
         } finally {
-            self::$partialContext = $prev;
             if ($callerIn !== null) {
                 array_pop($cx->depths);
             }
             if ($partialBlock !== null) {
-                $cx->partialBlock = $currentBlock;
+                $cx->data['partial-block'] = $currentBlock;
             }
         }
 

@@ -582,11 +582,6 @@ final class Compiler
             return $base;
         }
 
-        // @partial-block as variable: truthy when an active partial block exists
-        if ($data && $depth === 0 && count($stringParts) === 1 && $stringParts[0] === 'partial-block') {
-            return "\$cx->partialBlock !== null ? true : null";
-        }
-
         $isLength = end($stringParts) === 'length';
         $isCurrentContextPath = !$hasSubExprHead && !$data && $depth === 0;
         $scoped = $isCurrentContextPath && self::scopedId($path);

@@ -22,6 +22,5 @@ final class RuntimeContext
         public array $inlinePartials = [],
         public array $depths = [],
         public array $data = [],
-        public ?Closure $partialBlock = null,
     ) {}
 }
