@@ -31,9 +31,9 @@ final class Runtime
                 /** @var HelperOptions $options */
                 $options = $args[1];
                 $condition = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
-                return self::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
-                    ? $options->fn($options->scope)
-                    : $options->inverse($options->scope);
+                return self::isEmpty($condition, (bool) ($options->hash['includeZero'] ?? false))
+                    ? $options->inverse($options->scope)
+                    : $options->fn($options->scope);
             },
             'unless' => static function (mixed ...$args): string {
                 if (count($args) !== 2) {
@@ -42,9 +42,9 @@ final class Runtime
                 /** @var HelperOptions $options */
                 $options = $args[1];
                 $condition = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
-                return self::ifvar($condition, (bool) ($options->hash['includeZero'] ?? false))
-                    ? $options->inverse($options->scope)
-                    : $options->fn($options->scope);
+                return self::isEmpty($condition, (bool) ($options->hash['includeZero'] ?? false))
+                    ? $options->fn($options->scope)
+                    : $options->inverse($options->scope);
             },
             'each' => static function (mixed $context, ?HelperOptions $options = null): string {
                 if (!$options) {
@@ -67,10 +67,9 @@ final class Runtime
                 /** @var HelperOptions $options */
                 $options = $args[1];
                 $context = $args[0] instanceof Closure ? $args[0]($options->scope) : $args[0];
-                if (self::ifvar($context)) {
-                    return $options->fn($context, ['blockParams' => [$context]]);
-                }
-                return $options->inverse($options->scope);
+                return self::isEmpty($context)
+                    ? $options->inverse($options->scope)
+                    : $options->fn($context, ['blockParams' => [$context]]);
             },
             'lookup' => static function (mixed $obj, string|int $key): mixed {
                 if (is_array($obj)) {
@@ -173,7 +172,7 @@ final class Runtime
         if ($parentCx !== null) {
             // Partial context: reuse the parent's already-merged helpers and partials directly.
             // PHP copy-on-write ensures inlinePartials is only copied if the partial registers a new {{#* inline}} partial.
-            // p() always passes the caller's current data frame via options, so partials inherit @index, @key, etc.
+            // invokePartial() always passes the caller's current data frame via options, so partials inherit @index, @key, etc.
             // Unset 'root' first to break the reference established by `$in = &$cx->data['root']` in the
             // calling template; a direct assignment would write through it and corrupt the caller's $in.
             $data = $options['data'] ?? [];
@@ -200,33 +199,34 @@ final class Runtime
 
     /**
      * Invoke $v without arguments if it is a Closure; otherwise return $v as-is.
+     * Equivalent to container.lambda() in Handlebars.js.
      */
-    public static function dv(mixed $v): mixed
+    public static function lambda(mixed $v): mixed
     {
         return $v instanceof Closure ? $v() : $v;
     }
 
     /**
-     * Context variable lookup without helper dispatch.
+     * Context-only property lookup with lambda invocation.
      * Looks up $name in $_this; if the value is a Closure, invokes it with $_this as a positional arg
      * (PHP equivalent of JS fn.call(context), where context binds as `this` with no positional args).
      * When $strict is true, throws for missing keys.
      */
-    public static function cv(mixed &$_this, string $name, bool $strict = false): mixed
+    public static function lookupValue(mixed &$_this, string $name, bool $strict = false): mixed
     {
         $v = $strict ? self::strictLookup($_this, $name, $name) : ($_this[$name] ?? null);
         return $v instanceof Closure ? $v($_this) : $v;
     }
 
     /**
-     * Helper-or-variable lookup for bare {{identifier}} expressions.
-     * Checks runtime helpers first, then context value.
+     * Ambiguous bare {{identifier}}: checks runtime helpers first, then context value.
+     * Equivalent to the invokeAmbiguous opcode in the Handlebars.js compiler.
      * In non-strict mode: falls back to helperMissing when the context value is null.
      * When $assumeObjects is true, uses nullCheck for context lookup (throws on null context).
      * When $strict is true, uses strictLookup after the helper check (throws for missing keys; no helperMissing fallback).
      * When $compat is true, uses compatLookup() to walk $cx->depths instead of looking up directly in $_this.
      */
-    public static function hv(RuntimeContext $cx, string $name, mixed &$_this, bool $assumeObjects, bool $strict, bool $compat): mixed
+    public static function invokeAmbiguous(RuntimeContext $cx, string $name, mixed &$_this, bool $assumeObjects, bool $strict, bool $compat): mixed
     {
         $value = $cx->helpers[$name] ?? null;
         if ($value === null) {
@@ -246,7 +246,7 @@ final class Runtime
                 return $value;
             }
         }
-        return self::hbch($cx, $value, $name, [], [], $_this);
+        return self::invokeHelper($cx, $value, $name, [], [], $_this);
     }
 
     /**
@@ -287,22 +287,25 @@ final class Runtime
     }
 
     /**
-     * Returns true or false following the semantics of {{#if}} and {{#unless}} in Handlebars.js.
+     * Returns true if $v is empty/falsy under Handlebars.js semantics (null, false, 0 unless
+     * includeZero, empty string, empty array, or Stringable whose string form is '').
+     * Equivalent to Utils.isEmpty() in Handlebars.js.
      */
-    public static function ifvar(mixed $v, bool $includeZero = false): bool
+    public static function isEmpty(mixed $v, bool $includeZero = false): bool
     {
-        return $v !== null
-            && $v !== false
-            && ($includeZero || ($v !== 0 && $v !== 0.0))
-            && $v !== ''
-            && (!is_array($v) || $v)
-            && (!$v instanceof \Stringable || (string) $v !== '');
+        return $v === null
+            || $v === false
+            || (!$includeZero && ($v === 0 || $v === 0.0))
+            || $v === ''
+            || (is_array($v) && !$v)
+            || ($v instanceof \Stringable && (string) $v === '');
     }
 
     /**
-     * HTML encode {{var}} just like Handlebars.js
+     * HTML encode {{var}} just like Handlebars.js.
+     * Equivalent to container.escapeExpression() in Handlebars.js.
      */
-    public static function encq(mixed $var): string
+    public static function escapeExpression(mixed $var): string
     {
         if ($var instanceof SafeString) {
             return (string) $var;
@@ -349,11 +352,11 @@ final class Runtime
      * @param Closure|null $else callback function to render child context when {{else}}
      * @param array<mixed> $outerBlockParams outer block param stack, threaded into helper dispatch
      */
-    public static function sec(RuntimeContext $cx, mixed $value, mixed $in, ?Closure $cb, ?Closure $else, ?string $helperName, array $outerBlockParams = []): string
+    public static function section(RuntimeContext $cx, mixed $value, mixed $in, ?Closure $cb, ?Closure $else, ?string $helperName, array $outerBlockParams = []): string
     {
         $helper = $helperName !== null ? ($cx->helpers[$helperName] ?? null) : null;
         if ($helper !== null) {
-            return self::hbbch($cx, $helper, $helperName, [], [], $in, $cb, $else, $outerBlockParams);
+            return self::invokeBlockHelper($cx, $helper, $helperName, [], [], $in, $cb, $else, $outerBlockParams);
         }
 
         // Lambda functions in block position: simple-path identifiers ($helperName set) receive
@@ -366,13 +369,13 @@ final class Runtime
             return self::resolveBlockResult($cx, $result, $in, $cb, $else);
         }
 
-        return self::hbbch($cx, $cx->helpers['blockHelperMissing'], $helperName ?? '', [$value], [], $in, $cb, $else, $outerBlockParams);
+        return self::invokeBlockHelper($cx, $cx->helpers['blockHelperMissing'], $helperName ?? '', [$value], [], $in, $cb, $else, $outerBlockParams);
     }
 
     /**
-     * Get merged context.
+     * Merge context objects, equivalent to Utils.extend() in Handlebars.js.
      */
-    public static function merge(mixed $a, mixed $b): mixed
+    public static function extend(mixed $a, mixed $b): mixed
     {
         if (is_array($b)) {
             if ($a === null || is_int($a)) {
@@ -389,13 +392,12 @@ final class Runtime
     }
 
     /**
-     * Equivalent to invokePartial in the Handlebars.js runtime.
      * @param array<string, mixed> $hash named hash overrides merged into the context
      * @param string $indent whitespace to prepend to each line of the partial's output
      * @param mixed $callerIn When compat mode is enabled, the caller's current $in pushed onto depths so
      *                        the partial can walk up to the caller's scope (mirrors HBS.js compat depths).
      */
-    public static function p(RuntimeContext $cx, ?string $name, mixed $context, array $hash, string $indent, ?Closure $partialBlock = null, mixed $callerIn = null): string
+    public static function invokePartial(RuntimeContext $cx, ?string $name, mixed $context, array $hash, string $indent, ?Closure $partialBlock = null, mixed $callerIn = null): string
     {
         $fn = match ($name) {
             // @partial-block is resolved from data, mirroring HBS.js resolvePartial
@@ -424,7 +426,7 @@ final class Runtime
             };
         }
 
-        $context = $hash ? self::merge($context, $hash) : $context;
+        $context = $hash ? self::extend($context, $hash) : $context;
         // In compat mode, push the caller's current context onto depths before creating the partial
         // context so the partial can walk up to the caller's scope. createContext() (called inside
         // the partial closure) copies $parentCx->depths, so the push must happen here, before $fn().
@@ -460,11 +462,8 @@ final class Runtime
 
     /**
      * For {{#* inline "name"}} and {{#> partial}}fallback{{/partial}} blocks.
-     *
-     * @param string $name partial name
-     * @param Closure $partial the compiled partial
      */
-    public static function in(RuntimeContext $cx, string $name, Closure $partial): string
+    public static function setInlinePartial(RuntimeContext $cx, string $name, Closure $partial): string
     {
         $cx->inlinePartials[$name] = $partial;
         return '';
@@ -490,13 +489,12 @@ final class Runtime
 
     /**
      * Invoke a resolved helper Closure with positional params, hash, and a HelperOptions instance.
-     * Used for known helpers and resolved helpers (direct hbch calls from generated code),
-     * runtime-registered helpers (called from hv()), and built-in fallbacks like helperMissing/blockHelperMissing.
+     * Equivalent to the invokeHelper/invokeKnownHelper opcodes in the Handlebars.js compiler.
      *
      * @param array<mixed> $positional
      * @param array<string, mixed> $hash
      */
-    public static function hbch(RuntimeContext $cx, Closure $helper, string $name, array $positional, array $hash, mixed &$_this): mixed
+    public static function invokeHelper(RuntimeContext $cx, Closure $helper, string $name, array $positional, array $hash, mixed &$_this): mixed
     {
         /** @var \WeakMap<Closure, int>|null $paramCounts */
         static $paramCounts = null;
@@ -525,7 +523,7 @@ final class Runtime
     }
 
     /**
-     * For block custom helpers.
+     * Invoke a resolved block helper Closure with fn/inverse callbacks and a HelperOptions instance.
      *
      * @param array<mixed> $positional
      * @param array<string, mixed> $hash
@@ -534,7 +532,7 @@ final class Runtime
      * @param Closure|null $else callback function to render child context when {{else}}
      * @param array<mixed> $outerBlockParams outer block param stack for block params declared by the template
      */
-    public static function hbbch(RuntimeContext $cx, Closure $helper, string $name, array $positional, array $hash, mixed &$_this, ?Closure $cb, ?Closure $else, array $outerBlockParams = [], int $blockParamCount = 0): string
+    public static function invokeBlockHelper(RuntimeContext $cx, Closure $helper, string $name, array $positional, array $hash, mixed &$_this, ?Closure $cb, ?Closure $else, array $outerBlockParams = [], int $blockParamCount = 0): string
     {
         $positional[] = new HelperOptions(
             scope: $_this,
@@ -568,6 +566,6 @@ final class Runtime
         if ($cb === null) {
             return ''; // can occur when compiled from an inverted block helper (e.g. {{^helper}}...{{/helper}})
         }
-        return self::hbbch($cx, $cx->helpers['blockHelperMissing'], '', [$result], [], $_this, $cb, $else);
+        return self::invokeBlockHelper($cx, $cx->helpers['blockHelperMissing'], '', [$result], [], $_this, $cb, $else);
     }
 }

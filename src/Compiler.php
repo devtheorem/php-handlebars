@@ -196,7 +196,7 @@ final class Compiler
 
         $nameArg = !$this->context->options->knownHelpersOnly && (!$inverted || $type === SexprType::Ambiguous) ? ", $escapedName" : ', null';
         $outerBpArg = $this->blockParamValues ? ', $blockParams' : '';
-        return self::getRuntimeFunc('sec', "\$cx, $var, \$in, $fn, $else$nameArg$outerBpArg");
+        return self::getRuntimeFunc('section', "\$cx, $var, \$in, $fn, $else$nameArg$outerBpArg");
     }
 
     private function isKnownHelper(string $helperName): bool
@@ -331,7 +331,7 @@ final class Compiler
 
     /**
      * Compile the condition expression for an inlined if/unless ternary.
-     * Single-segment plain context paths (e.g. {{#if foo}}) use cv() so that closures are
+     * Single-segment plain context paths (e.g. {{#if foo}}) use lookupValue() so that closures are
      * invoked before being tested. All other expressions (multi-segment paths, data variables,
      * block params, sub-expressions) use compileExpression() as a helper argument.
      * Closures at nested path segments are not invoked.
@@ -345,17 +345,17 @@ final class Compiler
             && is_string($part)
             && count($condExpr->parts) === 1;
         if ($isSimplePath && $condExpr->data) {
-            $val = self::getRuntimeFunc('dv', $this->compileExpression($condExpr));
+            $val = self::getRuntimeFunc('lambda', $this->compileExpression($condExpr));
         } elseif ($isSimplePath && !self::scopedId($condExpr) && $this->lookupBlockParam($part) === null) {
-            $val = self::getRuntimeFunc('cv', '$in, ' . self::quote($part));
+            $val = self::getRuntimeFunc('lookupValue', '$in, ' . self::quote($part));
         } else {
             $savedHelperArgs = $this->compilingHelperArgs;
             $this->compilingHelperArgs = true;
             $val = $this->compileExpression($condExpr);
             $this->compilingHelperArgs = $savedHelperArgs;
         }
-        $cond = self::getRuntimeFunc('ifvar', $val);
-        return $negate ? "!$cond" : $cond;
+        $isEmpty = self::getRuntimeFunc('isEmpty', $val);
+        return $negate ? $isEmpty : "!$isEmpty";
     }
 
     private function compileDynamicBlockHelper(BlockStatement $block, string $name, string $varPath): string
@@ -389,13 +389,13 @@ final class Compiler
         $body = $this->compileProgramOrEmpty($block->program);
 
         // Register in usedPartial so {{> partialName}} can compile without error.
-        // Do NOT add to partialCode - `in()` handles runtime registration, keeping inline partials block-scoped.
+        // Do NOT add to partialCode - setInlinePartial() handles runtime registration, keeping inline partials block-scoped.
         $this->context->usedPartial[$partialName] = '';
 
         // Capture $blockParams and any hoisted program vars so the inline partial body can access them.
         $useVars = $this->buildInlineUseClause($depsBefore);
         $escapedName = self::quote($partialName);
-        return self::getRuntimeFunc('in', "\$cx, $escapedName, " . self::templateClosure($body, useVars: $useVars));
+        return self::getRuntimeFunc('setInlinePartial', "\$cx, $escapedName, " . self::templateClosure($body, useVars: $useVars));
     }
 
     private function Decorator(Decorator $decorator): never
@@ -434,7 +434,7 @@ final class Compiler
         // In compat mode, pass the caller's $in so the partial inherits the full context chain.
         $compatArg = $this->context->options->compat ? ', null, $in' : '';
 
-        return $prepend . self::getRuntimeFunc('p', "\$cx, $p, $vars, $indent$compatArg");
+        return $prepend . self::getRuntimeFunc('invokePartial', "\$cx, $p, $vars, $indent$compatArg");
     }
 
     private function PartialBlockStatement(PartialBlockStatement $statement): string
@@ -484,16 +484,16 @@ final class Compiler
         if ($partialName !== null && !$found) {
             // Register the block body as a fallback partial only if no runtime partial with this name exists yet.
             $parts[] = "(isset(\$cx->inlinePartials[$p]) || isset(\$cx->partials[$p]) ? '' : "
-                . self::getRuntimeFunc('in', "\$cx, $p, $bodyClosure") . ')';
+                . self::getRuntimeFunc('setInlinePartial', "\$cx, $p, $bodyClosure") . ')';
         }
         $compatArg = $this->context->options->compat ? ', $in' : '';
-        $parts[] = self::getRuntimeFunc('p', "\$cx, $p, $vars, '', $bodyClosure$compatArg");
+        $parts[] = self::getRuntimeFunc('invokePartial', "\$cx, $p, $vars, '', $bodyClosure$compatArg");
         return implode('.', $parts);
     }
 
     private function MustacheStatement(MustacheStatement $mustache): string
     {
-        $fn = (!$mustache->escaped || $this->context->options->noEscape) ? 'raw' : 'encq';
+        $fn = (!$mustache->escaped || $this->context->options->noEscape) ? 'raw' : 'escapeExpression';
         $path = $mustache->path;
 
         // SubExpression path: {{(path args)}} — always a direct helper call result
@@ -520,18 +520,18 @@ final class Compiler
             $strict = $this->context->options->strict ? 'true' : 'false';
             // @data vars are never depth-walked in compat mode.
             $compat = ($this->context->options->compat && !$isData) ? 'true' : 'false';
-            return self::getRuntimeFunc($fn, self::getRuntimeFunc('hv', "\$cx, $escapedKey, $scope, $assumeObjects, $strict, $compat"));
+            return self::getRuntimeFunc($fn, self::getRuntimeFunc('invokeAmbiguous', "\$cx, $escapedKey, $scope, $assumeObjects, $strict, $compat"));
         }
 
         // Simple: direct path lookup with lambda resolution.
-        // For knownHelpersOnly bare identifiers (single-segment, non-data): use cv() to pass the
+        // For knownHelpersOnly bare identifiers (single-segment, non-data): use lookupValue() to pass the
         // current context to any Closure, mirroring JS fn.call(context) where context is `this`.
-        // For all other simple paths (multi-segment, scoped, depth, data): use dv() with zero args,
+        // For all other simple paths (multi-segment, scoped, depth, data): use lambda() with zero args,
         // matching HBS.js container.lambda which also passes no positional arguments.
         if ($path instanceof PathExpression) {
             if ($helperName !== null && !$path->data && $this->context->options->knownHelpersOnly && !$this->context->options->compat) {
                 $cvArgs = '$in, ' . self::quote($helperName) . ($this->context->options->strict ? ', true' : '');
-                return self::getRuntimeFunc($fn, self::getRuntimeFunc('cv', $cvArgs));
+                return self::getRuntimeFunc($fn, self::getRuntimeFunc('lookupValue', $cvArgs));
             }
             $expression = $this->PathExpression($path);
         } else {
@@ -540,7 +540,7 @@ final class Compiler
             $expression = $this->compileModeAwareLookup('$in', [$literalKey], $literalKey);
         }
 
-        return self::getRuntimeFunc($fn, self::getRuntimeFunc('dv', $expression));
+        return self::getRuntimeFunc($fn, self::getRuntimeFunc('lambda', $expression));
     }
 
     // ── Expressions ─────────────────────────────────────────────────
@@ -654,7 +654,7 @@ final class Compiler
     private function resolveAndCompilePartial(string $name): void
     {
         if (isset($this->context->usedPartial[$name]) || str_starts_with($name, '@partial-block')) {
-            // @partial-block is resolved at runtime via in()/p()
+            // @partial-block is resolved at runtime via setInlinePartial()/invokePartial()
             return;
         }
 
@@ -842,7 +842,7 @@ final class Compiler
         // omit trailing bpCount/outerBp args when both are zero/empty
         $trailingArgs = ($bpCount > 0 || $outerBp !== '[]') ? ", $outerBp, $bpCount" : '';
         $args = "\$cx, $helperExpr, $escapedName, $params, \$in, $fn, $else";
-        return self::getRuntimeFunc('hbbch', $args . $trailingArgs);
+        return self::getRuntimeFunc('invokeBlockHelper', $args . $trailingArgs);
     }
 
     /**
@@ -857,7 +857,7 @@ final class Compiler
             $escapedName = self::quote($helperName);
             $isData = $path instanceof PathExpression && $path->data;
             if ($this->isKnownHelper($helperName)) {
-                return self::getRuntimeFunc('hbch', "\$cx, \$cx->helpers[$escapedName], $escapedName, $compiledParams, \$in");
+                return self::getRuntimeFunc('invokeHelper', "\$cx, \$cx->helpers[$escapedName], $escapedName, $compiledParams, \$in");
             }
             if ($this->context->options->knownHelpersOnly) {
                 $this->throwKnownHelpersOnly($helperName);
@@ -882,7 +882,7 @@ final class Compiler
         }
 
         $resolved = self::getRuntimeFunc('resolveHelper', "\$cx, $escapedName, $varPath, $checkHelpers");
-        return self::getRuntimeFunc('hbch', "\$cx, $resolved, $escapedName, $compiledParams, \$in");
+        return self::getRuntimeFunc('invokeHelper', "\$cx, $resolved, $escapedName, $compiledParams, \$in");
     }
 
     /**
