@@ -61,11 +61,6 @@ final class Compiler
      * @var string[][]
      */
     private array $programDepStack = [];
-    /**
-     * Deps for the top-level render closure — set by compile() after compileProgram() returns.
-     * @var string[]
-     */
-    private array $renderDeps = [];
 
     public function __construct(
         private readonly Parser $parser,
@@ -79,7 +74,7 @@ final class Compiler
         $this->programDefs = [];
         $this->programDepStack = [[]];
         $code = $this->compileProgram($program);
-        $this->renderDeps = array_pop($this->programDepStack);
+        array_pop($this->programDepStack);
         return $code;
     }
 
@@ -91,10 +86,9 @@ final class Compiler
     public function composePHPRender(string $code): string
     {
         $partials = implode(",\n", $this->context->partialCode);
-        $useVars = implode(', ', $this->renderDeps);
-        $closure = self::templateClosure($code, $partials, "\n \$in = &\$cx->data['root'];", $useVars);
-        $defs = $this->programDefs ? implode("\n", $this->programDefs) . "\n" : '';
-        return "use " . Runtime::class . " as LR;\n{$defs}return $closure;";
+        $defs = $this->programDefs ? "\n " . implode("\n ", $this->programDefs) : '';
+        $closure = self::templateClosure($code, $partials, $defs . "\n \$in = &\$cx->data['root'];");
+        return "use " . Runtime::class . " as LR;\nreturn $closure;";
     }
 
     /**
@@ -699,12 +693,8 @@ final class Compiler
         $program = $this->parser->parse($template, $this->context->options->ignoreStandalone);
         $partialCompiler = new self($this->parser);
         $code = $partialCompiler->compile($program, $this->context);
-        $closureExpr = self::templateClosure($code, useVars: implode(', ', $partialCompiler->renderDeps));
-
-        if ($partialCompiler->programDefs) {
-            $defs = implode("\n", $partialCompiler->programDefs) . "\n";
-            $closureExpr = "(static function() {\n{$defs}return {$closureExpr};\n})()";
-        }
+        $defs = $partialCompiler->programDefs ? "\n " . implode("\n ", $partialCompiler->programDefs) : '';
+        $closureExpr = self::templateClosure($code, stmts: $defs);
 
         $this->context->partialCode[$name] = self::quote($name) . ' => ' . $closureExpr;
     }
