@@ -168,6 +168,7 @@ final class Runtime
     public static function createContext(mixed $context, array $options, array $compiledPartials): RuntimeContext
     {
         $parentCx = $options['_cx'] ?? null;
+        $data = $options['data'] ?? [];
 
         if ($parentCx !== null) {
             // Partial context: reuse the parent's already-merged helpers and partials directly.
@@ -175,7 +176,6 @@ final class Runtime
             // invokePartial() always passes the caller's current data frame via options, so partials inherit @index, @key, etc.
             // Unset 'root' first to break the reference established by `$in = &$cx->data['root']` in the
             // calling template; a direct assignment would write through it and corrupt the caller's $in.
-            $data = $options['data'] ?? [];
             unset($data['root']);
             $data['root'] = $context;
             return new RuntimeContext(
@@ -187,11 +187,9 @@ final class Runtime
             );
         }
 
-        $data = $options['data'] ?? [];
         $data['root'] ??= $context;
-        $extraHelpers = $options['helpers'] ?? [];
         return new RuntimeContext(
-            helpers: $extraHelpers ? array_replace(Runtime::defaultHelpers(), $extraHelpers) : Runtime::defaultHelpers(),
+            helpers: array_replace(Runtime::defaultHelpers(), $options['helpers'] ?? []),
             partials: array_replace($compiledPartials, $options['partials'] ?? []),
             data: $data,
         );
@@ -316,9 +314,15 @@ final class Runtime
 
     /**
      * Get string representation for output
+     *
+     * This function has been optimized for JIT via a microbenchmark with common inputs.
      */
     public static function raw(mixed $value): string
     {
+        if (is_string($value)) {
+            return $value;
+        }
+
         if ($value === true) {
             return 'true';
         }
@@ -437,16 +441,11 @@ final class Runtime
         }
 
         if ($indent !== '') {
-            $lines = explode("\n", $result);
-            $lastIdx = count($lines) - 1;
-            foreach ($lines as $i => &$line) {
-                if ($line === '' && $i === $lastIdx) {
-                    break;
-                }
-                $line = $indent . $line;
+            if (str_ends_with($result, "\n")) {
+                $result = $indent . str_replace("\n", "\n" . $indent, substr($result, 0, -1)) . "\n";
+            } elseif ($result !== '') {
+                $result = $indent . str_replace("\n", "\n" . $indent, $result);
             }
-            unset($line);
-            $result = implode("\n", $lines);
         }
 
         return $result;
