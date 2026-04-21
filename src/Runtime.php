@@ -375,18 +375,10 @@ final class Runtime
     /**
      * Merge context objects, equivalent to Utils.extend() in Handlebars.js.
      */
-    public static function extend(mixed $a, mixed $b): mixed
+    private static function extend(mixed $a, mixed $b): mixed
     {
         if (is_array($b)) {
-            if ($a === null || is_int($a)) {
-                return $b;
-            } elseif (is_array($a)) {
-                return array_replace($a, $b);
-            } elseif (is_object($a)) {
-                foreach ($b as $i => $v) {
-                    $a->$i = $v;
-                }
-            }
+            return is_array($a) ? array_replace($a, $b) : $b;
         }
         return $a;
     }
@@ -560,7 +552,7 @@ final class Runtime
 
         // Arrays stringify like JS Array.prototype.toString(), regardless of fn block.
         if (is_array($result)) {
-            return implode(',', $result);
+            return self::raw($result);
         }
 
         if ($cb === null) {

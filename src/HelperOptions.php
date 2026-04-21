@@ -20,6 +20,7 @@ final class HelperOptions
      * @param array<mixed> $data
      * @param array<mixed> $hash
      * @param array<mixed> $outerBlockParams outer block param stack, passed as trailing elements of the stack
+     * @internal
      */
     public function __construct(
         public mixed &$scope,

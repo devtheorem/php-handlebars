@@ -766,8 +766,13 @@ class RegressionTest extends TestCase
             ],
             'block helper returning truthy non-string: stringified like JS' => [
                 'template' => '{{#helper}}block{{/helper}}',
-                'helpers' => ['helper' => fn() => ['truthy', 'array']],
-                'expected' => 'truthy,array',
+                'helpers' => ['helper' => fn() => ['a', ['ba', 'bb'], 'c']],
+                'expected' => 'a,ba,bb,c',
+            ],
+            'block helper returning non-list array: stringified like JS' => [
+                'template' => '{{#helper}}block{{/helper}}',
+                'helpers' => ['helper' => fn() => ['a' => 'foo', 'b' => 'bar']],
+                'expected' => '[object Object]',
             ],
             'inverted known block helper returning truthy non-string: stringified like JS' => [
                 'template' => '{{^helper}}block{{/helper}}',
@@ -1141,6 +1146,13 @@ class RegressionTest extends TestCase
                 'template' => '{{#if condition}}{{> foo}}{{/if}} {{#> foo}}Failover{{/foo}}',
                 'data' => ['condition' => false],
                 'expected' => ' Failover',
+            ],
+
+            'partial hash arguments replace scalar context' => [
+                'template' => '{{#with str}}{{> myPartial key="val"}}{{/with}}',
+                'partials' => ['myPartial' => '{{key}}'],
+                'data' => ['str' => 'hello'],
+                'expected' => 'val',
             ],
         ];
     }
