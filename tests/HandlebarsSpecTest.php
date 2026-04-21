@@ -54,49 +54,41 @@ class HandlebarsSpecTest extends TestCase
         }
         self::addDataHelpers($spec);
 
-        // setup helpers
+        $options = new Options(
+            compat: $spec['compileOptions']['compat'] ?? false,
+            knownHelpers: $spec['compileOptions']['knownHelpers'] ?? [],
+            knownHelpersOnly: $spec['compileOptions']['knownHelpersOnly'] ?? false,
+            strict: $spec['compileOptions']['strict'] ?? false,
+            assumeObjects: $spec['compileOptions']['assumeObjects'] ?? false,
+            preventIndent: $spec['compileOptions']['preventIndent'] ?? false,
+            ignoreStandalone: $spec['compileOptions']['ignoreStandalone'] ?? false,
+            explicitPartialContext: $spec['compileOptions']['explicitPartialContext'] ?? false,
+        );
+
         $helpers = [];
-        $helpersList = '[';
+        $helpersList = [];
+        $partials = [];
+
         foreach ($spec['helpers'] as $name => $func) {
             if (!isset($func['php'])) {
                 continue;
             }
             $helper = self::patchHelperCode($func['php']);
-            $helpersList .= "\n  '$name' => $helper,\n";
+            $helpersList[$name] = $helper;
             eval('$helpers[\'' . $name . '\'] = ' . $helper . ';');
         }
-        $helpersList .= ']';
 
-        // Convert "!code" partials (callable PHP strings) into actual callables.
-        $partials = [];
-        $stringPartials = [];
         foreach ($spec['partials'] as $name => $partial) {
+            // Convert "!code" partials (callable PHP strings) into actual callables.
             if (is_array($partial) && isset($partial['!code'], $partial['php'])) {
                 $partials[$name] = eval('return ' . $partial['php'] . ';');
             } else {
-                $stringPartials[$name] = $partial;
+                $partials[$name] = Handlebars::compile($partial, $options);
             }
         }
 
         try {
-            $knownHelpersOnly = $spec['compileOptions']['knownHelpersOnly'] ?? false;
-            $strict = $spec['compileOptions']['strict'] ?? false;
-            $assumeObjects = $spec['compileOptions']['assumeObjects'] ?? false;
-            $preventIndent = $spec['compileOptions']['preventIndent'] ?? false;
-            $ignoreStandalone = $spec['compileOptions']['ignoreStandalone'] ?? false;
-            $explicitPartialContext = $spec['compileOptions']['explicitPartialContext'] ?? false;
-
-            $php = Handlebars::precompile($spec['template'], new Options(
-                compat: $spec['compileOptions']['compat'] ?? false,
-                knownHelpers: $spec['compileOptions']['knownHelpers'] ?? [],
-                knownHelpersOnly: $knownHelpersOnly,
-                strict: $strict,
-                assumeObjects: $assumeObjects,
-                preventIndent: $preventIndent,
-                ignoreStandalone: $ignoreStandalone,
-                explicitPartialContext: $explicitPartialContext,
-                partials: $stringPartials,
-            ));
+            $php = Handlebars::precompile($spec['template'], $options);
         } catch (\Exception $e) {
             if ($spec['exception']) {
                 $this->expectNotToPerformAssertions();
@@ -127,20 +119,27 @@ class HandlebarsSpecTest extends TestCase
                 $this->expectNotToPerformAssertions();
                 return;
             }
-            $this->fail("Rendering error: {$e->getMessage()}\n\n" . self::getSpecDetails($php, $helpersList));
+            $this->fail("Rendering error: {$e->getMessage()}\n\n" . self::getSpecDetails($php, $helpersList, $spec['partials']));
         }
 
         if ($spec['exception']) {
             $details = $spec['exception'] === true ? '.' : ": {$spec['exception']}\n";
-            $this->fail("Expected exception{$details}\nResult: $result\n\n" . self::getSpecDetails($php, $helpersList));
+            $this->fail("Expected exception{$details}\nResult: $result\n\n" . self::getSpecDetails($php, $helpersList, $spec['partials']));
         }
 
-        $this->assertSame($spec['expected'], $result, self::getSpecDetails($php, $helpersList));
+        $this->assertSame($spec['expected'], $result, self::getSpecDetails($php, $helpersList, $spec['partials']));
     }
 
-    private static function getSpecDetails(string $code, string $helpers): string
+    /**
+     * @param array<mixed> $helpers
+     * @param array<mixed> $partials
+     */
+    private static function getSpecDetails(string $code, array $helpers, array $partials): string
     {
-        return "Helpers: $helpers\nPHP code:\n$code";
+        $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT;
+        $partials = json_encode($partials, $flags);
+        $helpers = json_encode($helpers, $flags);
+        return "Partials: $partials\nHelpers: $helpers\nPHP code:\n$code";
     }
 
     /**

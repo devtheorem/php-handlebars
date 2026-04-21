@@ -2,6 +2,7 @@
 
 namespace DevTheorem\Handlebars\Test;
 
+use Closure;
 use DevTheorem\Handlebars\Handlebars;
 use DevTheorem\Handlebars\HelperOptions;
 use DevTheorem\Handlebars\Options;
@@ -10,15 +11,16 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * @phpstan-type RenderTest array{
- *     template: string, options?: Options, helpers?: array<string, \Closure>, data?: array<mixed>, expected: string,
+ *     template: string, expected: string, data?: mixed, options?: Options,
+ *     helpers?: array<Closure>, partials?: array<string>,
  * }
  * @phpstan-type ErrorCase array{template: string, options?: Options, expected: string}
  */
 class ErrorTest extends TestCase
 {
     /**
-     * @param array<string, \Closure> $helpers
-     * @param array<mixed> $data
+     * @param array<Closure> $helpers
+     * @param array<string> $partials
      */
     #[DataProvider("renderErrorProvider")]
     public function testRenderingException(
@@ -26,12 +28,15 @@ class ErrorTest extends TestCase
         string $expected,
         ?Options $options = null,
         array $helpers = [],
-        array $data = [],
+        array $partials = [],
+        mixed $data = null,
     ): void {
-        $php = Handlebars::precompile($template, $options ?? new Options());
+        $options ??= new Options();
+        $php = Handlebars::precompile($template, $options);
         $renderer = Handlebars::template($php);
         try {
-            $result = $renderer($data, ['helpers' => $helpers]);
+            $partials = array_map(fn($p) => Handlebars::compile($p, $options), $partials);
+            $result = $renderer($data, ['helpers' => $helpers, 'partials' => $partials]);
             $this->fail("Expected exception: {$expected}\nRendered: $result\nPHP code:\n$php");
         } catch (\Exception $e) {
             $this->assertSame($expected, $e->getMessage(), "PHP code:\n$php");
@@ -50,12 +55,10 @@ class ErrorTest extends TestCase
             ],
             'partial-block not found in nested partials' => [
                 'template' => "{{#> testPartial}}\n  {{#> innerPartial}}\n   {{> @partial-block}}\n  {{/innerPartial}}\n{{/testPartial}}",
-                'options' => new Options(
-                    partials: [
-                        'testPartial' => 'testPartial => {{> @partial-block}} <=',
-                        'innerPartial' => 'innerPartial -> {{> @partial-block}} <-',
-                    ],
-                ),
+                'partials' => [
+                    'testPartial' => 'testPartial => {{> @partial-block}} <=',
+                    'innerPartial' => 'innerPartial -> {{> @partial-block}} <-',
+                ],
                 'expected' => "The partial @partial-block could not be found",
             ],
             'partial-block not found at top level' => [
@@ -95,6 +98,7 @@ class ErrorTest extends TestCase
             'strict mode null property access in if' => [
                 'template' => '{{#if foo.bar}}bad{{else}}OK{{/if}}',
                 'options' => new Options(strict: true),
+                'data' => [],
                 'expected' => 'Cannot access property "bar" on null',
             ],
             'strict mode missing variable' => [

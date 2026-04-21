@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * @phpstan-type RegIssue array{
  *     template: string, expected: string, data?: mixed, options?: Options,
- *     helpers?: array<string, \Closure>, runtimePartials?: array<string, string>,
+ *     helpers?: array<string, \Closure>, partials?: array<string, string>,
  *     vars?: array<mixed>,
  * }
  */
@@ -45,7 +45,7 @@ class RegressionTest extends TestCase
 
     /**
      * @param array<string, \Closure> $helpers
-     * @param array<string, string> $runtimePartials
+     * @param array<string, string> $partials
      * @param array<mixed> $vars
      */
     #[DataProvider("helperProvider")]
@@ -72,14 +72,15 @@ class RegressionTest extends TestCase
         mixed $data = null,
         ?Options $options = null,
         array $helpers = [],
-        array $runtimePartials = [],
+        array $partials = [],
         array $vars = [],
     ): void {
-        $templateSpec = Handlebars::precompile($template, $options ?? new Options());
+        $options ??= new Options();
+        $templateSpec = Handlebars::precompile($template, $options);
 
         try {
             $template = Handlebars::template($templateSpec);
-            $compiledPartials = array_map(fn($p) => Handlebars::compile($p), $runtimePartials);
+            $compiledPartials = array_map(fn($p) => Handlebars::compile($p, $options), $partials);
             $result = $template($data, ['helpers' => $helpers, 'partials' => $compiledPartials, 'data' => $vars]);
         } catch (\Throwable $e) {
             $this->fail("Error: {$e->getMessage()}\nPHP code:\n$templateSpec");
@@ -573,9 +574,7 @@ class RegressionTest extends TestCase
 
             'LNC#295 - double-nested helper in partial hash parameter' => [
                 'template' => '{{> MyPartial (newObject name="John Doe") message=(echo message=(echo message="Hello World!"))}}',
-                'options' => new Options(
-                    partials: ['MyPartial' => '{{name}} says: "{{message}}"'],
-                ),
+                'partials' => ['MyPartial' => '{{name}} says: "{{message}}"'],
                 'helpers' => [
                     'newObject' => fn(HelperOptions $options) => $options->hash,
                     'echo' => fn(HelperOptions $options) => $options->hash['message'],
@@ -898,12 +897,10 @@ class RegressionTest extends TestCase
         return [
             'LNC#64 - recursive partial support' => [
                 'template' => '{{#each foo}} Test! {{this}} {{/each}}{{> test1}} ! >>> {{>recursive}}',
-                'options' => new Options(
-                    partials: [
-                        'test1' => "123\n",
-                        'recursive' => "{{#if foo}}{{bar}} -> {{#with foo}}{{>recursive}}{{/with}}{{else}}END!{{/if}}\n",
-                    ],
-                ),
+                'partials' => [
+                    'test1' => "123\n",
+                    'recursive' => "{{#if foo}}{{bar}} -> {{#with foo}}{{>recursive}}{{/with}}{{else}}END!{{/if}}\n",
+                ],
                 'data' => [
                     'bar' => 1,
                     'foo' => [
@@ -927,72 +924,58 @@ class RegressionTest extends TestCase
 
             'LNC#88 - subpartial support' => [
                 'template' => '{{>test2}}',
-                'options' => new Options(
-                    partials: [
-                        'test2' => "a{{> test1}}b\n",
-                        'test1' => "123\n",
-                    ],
-                ),
+                'partials' => [
+                    'test2' => "a{{> test1}}b\n",
+                    'test1' => "123\n",
+                ],
                 'expected' => "a123\nb\n",
             ],
 
             'partial names should be correctly escaped' => [
                 'template' => '{{> "foo\button\'"}} {{> "bar\\\link"}}',
-                'options' => new Options(
-                    partials: [
-                        'foo\button\'' => 'Button!',
-                        'bar\\\link' => 'Link!',
-                    ],
-                ),
+                'partials' => [
+                    'foo\button\'' => 'Button!',
+                    'bar\\\link' => 'Link!',
+                ],
                 'expected' => 'Button! Link!',
             ],
 
             'LNC#83 - partial names containing slash' => [
                 'template' => '{{> tests/test1}}',
-                'options' => new Options(
-                    partials: ['tests/test1' => "123\n"],
-                ),
+                'partials' => ['tests/test1' => "123\n"],
                 'expected' => "123\n",
             ],
 
             'partial in {{#each}} is passed correct context' => [
                 'template' => '{{#each .}}->{{>tests/test3 ../foo}}{{/each}}',
                 'data' => ['a', 'foo' => ['d', 'e', 'f']],
-                'options' => new Options(
-                    partials: ['tests/test3' => 'New context:{{.}}'],
-                ),
+                'partials' => ['tests/test3' => 'New context:{{.}}'],
                 'expected' => "->New context:d,e,f->New context:d,e,f",
             ],
             'partial in {{#each}} has correct context' => [
                 'template' => '{{#each .}}->{{>tests/test3}}{{/each}}',
                 'data' => ['a', 'b', 'c'],
-                'options' => new Options(
-                    partials: ['tests/test3' => 'New context:{{.}}'],
-                ),
+                'partials' => ['tests/test3' => 'New context:{{.}}'],
                 'expected' => "->New context:a->New context:b->New context:c",
             ],
 
             'LNC#147 - pass hash arguments to partial' => [
                 'template' => '{{> test/test3 foo="bar"}}',
                 'data' => ['test' => 'OK!', 'foo' => 'error'],
-                'options' => new Options(
-                    partials: ['test/test3' => '{{test}}, {{foo}}'],
-                ),
+                'partials' => ['test/test3' => '{{test}}, {{foo}}'],
                 'expected' => 'OK!, bar',
             ],
 
             'LNC#158 - partial can contain JavaScript' => [
                 'template' => '{{>test_js_partial}}',
-                'options' => new Options(
-                    partials: [
-                        'test_js_partial' => <<<VAREND
+                'partials' => [
+                    'test_js_partial' => <<<VAREND
                             Test GA....
                             <script>
                             (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){console.log('works!')};})();
                             </script>
                             VAREND,
-                    ],
-                ),
+                ],
                 'expected' => <<<VAREND
                     Test GA....
                     <script>
@@ -1004,48 +987,38 @@ class RegressionTest extends TestCase
             'LNC#204 - partial blocks should not duplicate content' => [
                 'template' => '{{#> test name="A"}}B{{/test}}{{#> test name="C"}}D{{/test}}',
                 'data' => ['bar' => true],
-                'options' => new Options(
-                    partials: ['test' => '{{name}}:{{> @partial-block}},'],
-                ),
+                'partials' => ['test' => '{{name}}:{{> @partial-block}},'],
                 'expected' => 'A:B,C:D,',
             ],
 
             'LNC#224 - partial block containing a comment' => [
                 'template' => '{{#> foo bar}}a,b,{{.}},{{!-- comment --}},d{{/foo}}',
                 'data' => ['bar' => 'BA!'],
-                'options' => new Options(
-                    partials: ['foo' => 'hello, {{> @partial-block}}'],
-                ),
+                'partials' => ['foo' => 'hello, {{> @partial-block}}'],
                 'expected' => 'hello, a,b,BA!,,d',
             ],
             'LNC#224 - partial block containing if/else' => [
                 'template' => '{{#> foo bar}}{{#if .}}OK! {{.}}{{else}}no bar{{/if}}{{/foo}}',
                 'data' => ['bar' => 'BA!'],
-                'options' => new Options(
-                    partials: ['foo' => 'hello, {{> @partial-block}}'],
-                ),
+                'partials' => ['foo' => 'hello, {{> @partial-block}}'],
                 'expected' => 'hello, OK! BA!',
             ],
 
             'LNC#234 - use lookup helper for dynamic partial' => [
                 'template' => '{{> (lookup foo 2)}}',
                 'data' => ['foo' => ['a', 'b', 'c']],
-                'options' => new Options(
-                    partials: [
-                        'a' => '1st',
-                        'b' => '2nd',
-                        'c' => '3rd',
-                    ],
-                ),
+                'partials' => [
+                    'a' => '1st',
+                    'b' => '2nd',
+                    'c' => '3rd',
+                ],
                 'expected' => '3rd',
             ],
 
             'dynamic partial with subexpression and context' => [
                 'template' => '{{> (pname foo) bar}}',
                 'data' => ['bar' => 'OK! SUBEXP+PARTIAL!', 'foo' => 'test/test3'],
-                'options' => new Options(
-                    partials: ['test/test3' => '{{.}}'],
-                ),
+                'partials' => ['test/test3' => '{{.}}'],
                 'helpers' => ['pname' => fn($arg) => $arg],
                 'expected' => 'OK! SUBEXP+PARTIAL!',
             ],
@@ -1057,13 +1030,11 @@ class RegressionTest extends TestCase
                     'name' => 'Lucky',
                     'age' => 5,
                 ],
-                'options' => new Options(
-                    partials: [
-                        'people' => 'This is {{name}}, he is {{age}} years old.',
-                        'animal' => 'This is {{name}}, it is {{age}} years old.',
-                        'default' => 'This is {{name}}.',
-                    ],
-                ),
+                'partials' => [
+                    'people' => 'This is {{name}}, he is {{age}} years old.',
+                    'animal' => 'This is {{name}}, it is {{age}} years old.',
+                    'default' => 'This is {{name}}.',
+                ],
                 'helpers' => [
                     'partial_name_helper' => function (string $type) {
                         return match ($type) {
@@ -1096,32 +1067,26 @@ class RegressionTest extends TestCase
             'LNC#241 - each block inside inline block context' => [
                 'template' => '{{#>foo}}{{#*inline "bar"}}GOOD!{{#each .}}>{{.}}{{/each}}{{/inline}}{{/foo}}',
                 'data' => ['1', '3', '5'],
-                'options' => new Options(
-                    partials: [
-                        'foo' => 'A{{#>bar}}BAD{{/bar}}B',
-                        'moo' => 'oh',
-                    ],
-                ),
+                'partials' => [
+                    'foo' => 'A{{#>bar}}BAD{{/bar}}B',
+                    'moo' => 'oh',
+                ],
                 'expected' => 'AGOOD!>1>3>5B',
             ],
 
             'LNC#284 - partial strings should be escaped' => [
                 'template' => '{{> foo}}',
-                'options' => new Options(
-                    partials: ['foo' => "12'34"],
-                ),
+                'partials' => ['foo' => "12'34"],
                 'expected' => "12'34",
             ],
             'LNC#284 - partial strings should be escaped (2)' => [
                 'template' => '{{> (lookup foo 2)}}',
                 'data' => ['foo' => ['a', 'b', 'c']],
-                'options' => new Options(
-                    partials: [
-                        'a' => '1st',
-                        'b' => '2nd',
-                        'c' => "3'r'd",
-                    ],
-                ),
+                'partials' => [
+                    'a' => '1st',
+                    'b' => '2nd',
+                    'c' => "3'r'd",
+                ],
                 'expected' => "3'r'd",
             ],
 
@@ -1142,9 +1107,7 @@ class RegressionTest extends TestCase
 
             'LNC#316 - curly braces in a string parameter for a partial' => [
                 'template' => '{{> StrongPartial text="Use the syntax: {{varName}}."}}',
-                'options' => new Options(
-                    partials: ['StrongPartial' => '<strong>{{text}}</strong>'],
-                ),
+                'partials' => ['StrongPartial' => '<strong>{{text}}</strong>'],
                 'data' => ['varName' => 'unused'],
                 'expected' => '<strong>Use the syntax: {{varName}}.</strong>',
             ],
@@ -1152,9 +1115,7 @@ class RegressionTest extends TestCase
             'partial with context and hash' => [
                 'template' => '{{> testpartial newcontext mixed=foo}}',
                 'data' => ['foo' => 'OK!', 'newcontext' => ['bar' => 'test']],
-                'options' => new Options(
-                    partials: ['testpartial' => '{{bar}}-{{mixed}}'],
-                ),
+                'partials' => ['testpartial' => '{{bar}}-{{mixed}}'],
                 'expected' => 'test-OK!',
             ],
 
@@ -1191,36 +1152,30 @@ class RegressionTest extends TestCase
             'LNC#235 - nested partial blocks' => [
                 'template' => '{{#> "myPartial"}}{{#> myOtherPartial}}{{ @root.foo}}{{/myOtherPartial}}{{/"myPartial"}}',
                 'data' => ['foo' => 'hello!'],
-                'options' => new Options(
-                    partials: [
-                        'myPartial' => '<div>outer {{> @partial-block}}</div>',
-                        'myOtherPartial' => '<div>inner {{> @partial-block}}</div>',
-                    ],
-                ),
+                'partials' => [
+                    'myPartial' => '<div>outer {{> @partial-block}}</div>',
+                    'myOtherPartial' => '<div>inner {{> @partial-block}}</div>',
+                ],
                 'expected' => '<div>outer <div>inner hello!</div></div>',
             ],
 
             'LNC#236 - more nested partial blocks' => [
                 'template' => 'A{{#> foo}}B{{#> bar}}C{{>moo}}D{{/bar}}E{{/foo}}F',
-                'options' => new Options(
-                    partials: [
-                        'foo' => 'FOO>{{> @partial-block}}<FOO',
-                        'bar' => 'bar>{{> @partial-block}}<bar',
-                        'moo' => 'MOO!',
-                    ],
-                ),
+                'partials' => [
+                    'foo' => 'FOO>{{> @partial-block}}<FOO',
+                    'bar' => 'bar>{{> @partial-block}}<bar',
+                    'moo' => 'MOO!',
+                ],
                 'expected' => 'AFOO>Bbar>CMOO!D<barE<FOOF',
             ],
 
             'LNC#244 - nested partial blocks' => [
                 'template' => '{{#>outer}}content{{/outer}}',
                 'data' => ['test' => 'OK'],
-                'options' => new Options(
-                    partials: [
-                        'outer' => 'outer+{{#>nested}}~{{>@partial-block}}~{{/nested}}+outer-end',
-                        'nested' => 'nested={{>@partial-block}}=nested-end',
-                    ],
-                ),
+                'partials' => [
+                    'outer' => 'outer+{{#>nested}}~{{>@partial-block}}~{{/nested}}+outer-end',
+                    'nested' => 'nested={{>@partial-block}}=nested-end',
+                ],
                 'expected' => 'outer+nested=~content~=nested-end+outer-end',
             ],
 
@@ -1232,7 +1187,7 @@ class RegressionTest extends TestCase
                         'nested' => 'nested={{>@partial-block}}=nested-end',
                     ],
                 ),
-                'runtimePartials' => [
+                'partials' => [
                     'compiledBlock' => 'compiledBlock !!! {{>@partial-block}} !!! compiledBlock',
                     'normalTemplate' => 'normalTemplate',
                 ],
@@ -1252,7 +1207,7 @@ class RegressionTest extends TestCase
             ],
             'LNC#292 - nested runtime partials should render correctly' => [
                 'template' => '{ {{#>outer}} {{#>innerBlock}} Hello {{/innerBlock}} {{>simple}} {{/outer}} }',
-                'runtimePartials' => [
+                'partials' => [
                     'outer' => '( {{#>nested}} « {{>@partial-block}} » {{/nested}} )',
                     'nested' => '[ {{>@partial-block}} ]',
                     'innerBlock' => '< {{>@partial-block}} >',
@@ -1264,17 +1219,22 @@ class RegressionTest extends TestCase
             'partial called with child context must not corrupt root $in reference' => [
                 'template' => '{{heading}} {{#each items}}{{> item}}{{/each}} {{heading}}',
                 'data' => ['heading' => 'Title', 'items' => ['a', 'b']],
-                'runtimePartials' => ['item' => '({{.}})'],
+                'partials' => ['item' => '({{.}})'],
                 'expected' => 'Title (a)(b) Title',
             ],
 
             'LNC#341 - render-time partials can access @partial-block' => [
                 'template' => '{{#> MyPartial child}}This <b>text</b> was sent from the template to the partial.{{/MyPartial}}',
-                'runtimePartials' => [
-                    'MyPartial' => '{{name}} says: “{{> @partial-block }}”',
-                ],
+                'partials' => ['MyPartial' => '{{name}} says: “{{> @partial-block }}”'],
                 'data' => ['child' => ['name' => 'Jason']],
                 'expected' => 'Jason says: “This <b>text</b> was sent from the template to the partial.”',
+            ],
+
+            '@data variables are accessible in partial block content' => [
+                'template' => '{{#each items}}{{#> p}}{{@index}}{{/p}}{{/each}}',
+                'data' => ['items' => ['a', 'b', 'c']],
+                'partials' => ['p' => '{{> @partial-block}}'],
+                'expected' => '012',
             ],
         ];
     }
@@ -1442,9 +1402,7 @@ class RegressionTest extends TestCase
             '#7 - correct spacing for each block in partial' => [
                 'template' => "<p>\n  {{> list}}\n</p>",
                 'data' => ['items' => ['Hello', 'World']],
-                'options' => new Options(
-                    partials: ['list' => "{{#each items}}{{this}}\n{{/each}}"],
-                ),
+                'partials' => ['list' => "{{#each items}}{{this}}\n{{/each}}"],
                 'expected' => "<p>\n  Hello\n  World\n</p>",
             ],
 
@@ -1500,12 +1458,10 @@ class RegressionTest extends TestCase
                       {{> partialB}}
                     </div>
                     _tpl,
-                'options' => new Options(
-                    partials: [
-                        'partialA' => "<div>\n  Partial A\n  {{> partialB}}\n</div>\n",
-                        'partialB' => "<p>\n  Partial B\n</p>\n",
-                    ],
-                ),
+                'partials' => [
+                    'partialA' => "<div>\n  Partial A\n  {{> partialB}}\n</div>\n",
+                    'partialB' => "<p>\n  Partial B\n</p>\n",
+                ],
                 'expected' => <<<_result
                     <div>
                       <div>
@@ -1523,9 +1479,7 @@ class RegressionTest extends TestCase
 
             'partial double include with indentation' => [
                 'template' => "{{>test1}}\n  {{>test1}}\nDONE\n",
-                'options' => new Options(
-                    partials: ['test1' => "1:A\n 2:B\n  3:C\n 4:D\n5:E\n"],
-                ),
+                'partials' => ['test1' => "1:A\n 2:B\n  3:C\n 4:D\n5:E\n"],
                 'expected' => "1:A\n 2:B\n  3:C\n 4:D\n5:E\n  1:A\n   2:B\n    3:C\n   4:D\n  5:E\nDONE\n",
             ],
 
@@ -1538,18 +1492,14 @@ class RegressionTest extends TestCase
             'partial preserves internal indentation' => [
                 'template' => "{{>test}}\n",
                 'data' => ['foo' => 'ha', 'bar' => 'hey'],
-                'options' => new Options(
-                    partials: ['test' => "{{foo}}\n  {{bar}}\n"],
-                ),
+                'partials' => ['test' => "{{foo}}\n  {{bar}}\n"],
                 'expected' => "ha\n  hey\n",
             ],
 
             'section with partial and indentation' => [
                 'template' => "ST:\n{{#foo}}\n {{>test1}}\n{{/foo}}\nOK\n",
                 'data' => ['foo' => [1, 2]],
-                'options' => new Options(
-                    partials: ['test1' => "1:A\n 2:B({{@index}})\n"],
-                ),
+                'partials' => ['test1' => "1:A\n 2:B({{@index}})\n"],
                 'expected' => "ST:\n 1:A\n  2:B(0)\n 1:A\n  2:B(1)\nOK\n",
             ],
         ];
@@ -1638,10 +1588,8 @@ class RegressionTest extends TestCase
             ],
             'LNC#109 - partials work with noEscape' => [
                 'template' => '{{foo}} {{> test}}',
-                'options' => new Options(
-                    noEscape: true,
-                    partials: ['test' => '{{foo}}'],
-                ),
+                'partials' => ['test' => '{{foo}}'],
+                'options' => new Options(noEscape: true),
                 'data' => ['foo' => '<'],
                 'expected' => '< <',
             ],
@@ -1654,28 +1602,22 @@ class RegressionTest extends TestCase
         return [
             'preventIndent: double include' => [
                 'template' => "{{>test1}}\n  {{>test1}}\nDONE\n",
-                'options' => new Options(
-                    preventIndent: true,
-                    partials: ['test1' => "1:A\n 2:B\n  3:C\n 4:D\n5:E\n"],
-                ),
+                'partials' => ['test1' => "1:A\n 2:B\n  3:C\n 4:D\n5:E\n"],
+                'options' => new Options(preventIndent: true),
                 'expected' => "1:A\n 2:B\n  3:C\n 4:D\n5:E\n  1:A\n 2:B\n  3:C\n 4:D\n5:E\nDONE\n",
             ],
             'preventIndent: leading space preserved' => [
                 'template' => " {{>test}}\n",
+                'partials' => ['test' => "{{foo}}\n  {{bar}}\n"],
                 'data' => ['foo' => 'ha', 'bar' => 'hey'],
-                'options' => new Options(
-                    preventIndent: true,
-                    partials: ['test' => "{{foo}}\n  {{bar}}\n"],
-                ),
+                'options' => new Options(preventIndent: true),
                 'expected' => " ha\n  hey\n",
             ],
             'preventIndent: newline then leading space' => [
                 'template' => "\n {{>test}}\n",
+                'partials' => ['test' => "{{foo}}\n  {{bar}}\n"],
                 'data' => ['foo' => 'ha', 'bar' => 'hey'],
-                'options' => new Options(
-                    preventIndent: true,
-                    partials: ['test' => "{{foo}}\n  {{bar}}\n"],
-                ),
+                'options' => new Options(preventIndent: true),
                 'expected' => "\n ha\n  hey\n",
             ],
         ];
@@ -2397,9 +2339,7 @@ class RegressionTest extends TestCase
             ],
             'LNC#175 - partial comments can contain mustache syntax' => [
                 'template' => 'c{{>test}}d',
-                'options' => new Options(
-                    partials: ['test' => 'a{{!-- {{each}} haha {{/each}} --}}b'],
-                ),
+                'partials' => ['test' => 'a{{!-- {{each}} haha {{/each}} --}}b'],
                 'expected' => 'cabd',
             ],
 
