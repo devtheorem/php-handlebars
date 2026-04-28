@@ -2,17 +2,8 @@
 
 A blazing fast, spec-compliant PHP implementation of [Handlebars](https://handlebarsjs.com).
 
-Originally based on [LightnCandy](https://github.com/zordius/lightncandy), but rewritten to enable
-full Handlebars.js compatibility without excessive feature flags or performance tradeoffs.
-
-PHP Handlebars compiles and executes complex templates over 40% faster than LightnCandy, with 60% lower memory usage:
-
-| Library            | Compile time | Runtime | Total time | Peak memory usage |
-|--------------------|--------------|---------|------------|-------------------|
-| LightnCandy 1.2.6  | 5.2 ms       | 2.8 ms  | 8.0 ms     | 5.3 MB            |
-| PHP Handlebars 1.2 | 3.2 ms       | 1.4 ms  | 4.6 ms     | 1.9 MB            |
-
-_Tested on PHP 8.5 with the JIT enabled. See the `benchmark` branch to run the same test._
+The syntax of Handlebars is generally a superset of Mustache, so in most cases it is
+possible to swap out Mustache for Handlebars and continue using the same templates.
 
 ## Features
 
@@ -20,7 +11,23 @@ _Tested on PHP 8.5 with the JIT enabled. See the `benchmark` branch to run the s
 partials, hooks, `@data` variables, whitespace control, and `.length` on arrays.
 * Templates are parsed using [PHP Handlebars Parser](https://github.com/devtheorem/php-handlebars-parser),
 which implements the same lexical analysis and AST grammar specification as Handlebars.js.
-* Tested against the full [Handlebars.js spec](https://github.com/jbboehr/handlebars-spec).
+* Tested against the [Handlebars.js spec](https://github.com/jbboehr/handlebars-spec)
+  and the [Mustache spec](https://github.com/mustache/spec).
+
+## Performance
+
+PHP Handlebars started as a fork of [LightnCandy](https://github.com/zordius/lightncandy),
+but has been rewritten with an AST-based parser and optimized runtime to enable full
+Handlebars.js compatibility with better performance.
+
+PHP Handlebars compiles and executes complex templates over 40% faster than LightnCandy, with 60% lower memory usage:
+
+| Library            | Compile time | Runtime | Total time | Peak memory usage |
+|--------------------|--------------|---------|------------|-------------------|
+| LightnCandy 1.2.6  | 5.2 ms       | 2.8 ms  | 8.0 ms     | 5.3 MB            |
+| PHP Handlebars 2.0 | 3.0 ms       | 1.4 ms  | 4.4 ms     | 1.8 MB            |
+
+_Tested on PHP 8.5 with the JIT enabled. See the `benchmark` branch to run the same test._
 
 ## Installation
 ```
@@ -31,27 +38,74 @@ composer require devtheorem/php-handlebars
 ```php
 use DevTheorem\Handlebars\Handlebars;
 
-$template = Handlebars::compile('Hello {{name}}!');
+$source = <<<'HBS'
+    <p>Hi {{user.name}}, you have {{notifications.length}} new notification(s):</p>
+    <ul>
+    {{#notifications}}
+        <li>{{count}} {{message}} ({{time}})</li>
+    {{/notifications}}
+    </ul>
+    HBS;
 
-echo $template(['name' => 'World']); // Hello World!
+$data = [
+    'user' => ['name' => 'Jane'],
+    'notifications' => [
+        ['count' => 4, 'message' => 'new comments', 'time' => '5 min ago'],
+        ['count' => 3, 'message' => 'new followers', 'time' => '1 hr ago'],
+    ],
+];
+
+$template = Handlebars::compile($source);
+echo $template($data);
+```
+
+Output:
+```html
+<p>Hi Jane, you have 2 new notification(s):</p>
+<ul>
+    <li>4 new comments (5 min ago)</li>
+    <li>3 new followers (1 hr ago)</li>
+</ul>
 ```
 
 ## Precompilation
-Templates can be pre-compiled to native PHP for later execution:
+
+Templates and partials can be precompiled to native PHP for later execution,
+avoiding the overhead of parsing and compilation on each request.
+
+**Build step** - compile all templates in a directory and cache the generated PHP:
 
 ```php
 use DevTheorem\Handlebars\Handlebars;
 
-$code = Handlebars::precompile('<p>{{org.name}}</p>');
+$templateDir = 'templates';
+$cacheDir = 'templateCache';
 
-// save the compiled code into a PHP file
-file_put_contents('render.php', "<?php $code");
-
-// later import the template function from the PHP file
-$template = require 'render.php';
-
-echo $template(['org' => ['name' => 'DevTheorem']]);
+foreach (glob("$templateDir/*.hbs") ?: [] as $file) {
+    $name = basename($file, '.hbs');
+    $code = Handlebars::precompile(file_get_contents($file));
+    file_put_contents("$cacheDir/$name.php", "<?php $code");
+}
 ```
+
+**Runtime** - load only needed templates, with precompiled partials resolved on demand:
+
+```php
+$template = require 'templateCache/page.php';
+
+$data = ['title' => 'My Page', 'user' => ['name' => 'Jane']];
+echo $template($data, [
+    'partialResolver' => fn(string $name) => require "templateCache/$name.php",
+]);
+```
+
+Each `{{> partial}}` call triggers the resolver on first use, and the result is cached for
+the rest of that render. Only the partials that the page actually references are ever loaded.
+
+> [!IMPORTANT]  
+> Precompiled templates must be regenerated whenever PHP Handlebars is updated, as the generated
+> PHP code depends on the current version of the runtime. The build step above should be part of
+> a deployment process so that precompiled output does not need to be committed to source control.
 
 ## Compile Options
 
@@ -70,14 +124,23 @@ echo $template(['first' => 'John']); // Error: "last" not defined
 
 ### Available Options
 
+* `compat`: Set to `true` to enable recursive field lookup. If a template variable is not found in the current scope,
+  it will automatically be looked up in parent scopes, matching Mustache's default behavior.
+
+> [!NOTE]  
+> Recursive lookup has a runtime cost, so it is recommended that performance-sensitive
+> operations should avoid `compat` mode and instead opt for explicit path references.
+
 * `knownHelpers`: Associative array (`helperName => bool`) of helpers that will be registered at runtime.
-  The compiler uses this to emit direct helper calls instead of dynamic dispatch, which is faster and required when `knownHelpersOnly` is set.
-  Built-in helpers (`if`, `unless`, `each`, `with`, `lookup`, `log`) are pre-populated as `true` and may be excluded by setting them to `false`.
-  Setting `if` or `unless` to `false` also disables the inline ternary optimization and allows those helpers to be overridden at runtime.
+  The compiler uses this to emit direct helper calls instead of dynamic dispatch,
+  which is faster and required when `knownHelpersOnly` is set.
+  Built-in helpers (`if`, `unless`, `each`, `with`, `lookup`, `log`) are pre-populated as `true` and may be excluded
+  by setting them to `false`. Setting `if` or `unless` to `false` also disables the inline ternary optimization and
+  allows those helpers to be overridden at runtime.
 
 * `knownHelpersOnly`: Restricts templates to only the helpers in `knownHelpers`, enabling further compile-time optimizations:
   block sections and bare `{{identifier}}` expressions skip the runtime helper table and use a direct context lookup,
-  and any use of an unregistered helper throws a compile-time exception instead of falling back to dynamic dispatch.
+  and any use of an unknown helper throws a compile-time exception instead of falling back to dynamic dispatch.
 
 * `noEscape`: Set to `true` to disable HTML escaping of output.
 
@@ -96,11 +159,6 @@ echo $template(['first' => 'John']); // Error: "last" not defined
 * `explicitPartialContext`: Disables implicit context for partials.
   When enabled, partials that are not passed a context value will execute against an empty object.
 
-* `partials`: An associative array of custom partial template strings (`name => template`).
-
-* `partialResolver`: A closure that will be called at compile time for any partial not found in the `partials` array,
-  and should return a template string for it.
-
 ## Runtime Options
 
 `Handlebars::compile` returns a closure which can be invoked as `$template($context, $options)`.
@@ -108,10 +166,16 @@ The `$options` parameter takes an array of runtime options, accepting the follow
 
 * `data`: An associative array of custom `@data` variables (e.g. `['version' => '1.0']` makes `@version` available in the template).
 
-* `helpers`: An `array<string, \Closure>` of helpers to merge with the built-in helpers. Can also be used to override a built-in helper by using the same name.
+* `helpers`: An `array<string, Closure>` of helpers to merge with the built-in helpers.
+  Can also be used to override a built-in helper by using the same name.
 
-* `partials`: An `array<string, \Closure>` of partial closures precompiled with `Handlebars::compile`.
-  Useful when multiple templates share the same partials, and you want to avoid recompiling them for each template.
+* `partials`: An `array<string, Closure>` of partials compiled with `Handlebars::compile`.
+  Useful for eagerly providing a known set of partials.
+
+* `partialResolver`: A `Closure(string $name): ?Closure` called lazily when a partial is referenced
+  but not found in the `partials` map. Should return a compiled partial closure, or `null` if the partial
+  does not exist. The resolved closure is cached for the remainder of the render, so each partial is loaded
+  at most once per template invocation.
 
 ## Custom Helpers
 
@@ -155,7 +219,7 @@ echo $template(['my_var' => null], $runtimeOptions); // Not equal
 
 * `scope` (`mixed`): The current evaluation context (equivalent to `this` in a Handlebars.js helper).
 
-* `data` (`array`): The current `@data` frame. `root` refers to the top-level context.
+* `data` (`array`): The current `@data` frame. The `root` key refers to the top-level context.
   `index`, `key`, `first`, and `last` are set by `{{#each}}` blocks. Can be read or modified inside a helper.
 
 ### HelperOptions Methods
@@ -170,10 +234,11 @@ echo $template(['my_var' => null], $runtimeOptions); // Not equal
   Accepts the same optional `$context` and `$data` arguments as `fn()`.
 
 * `hasPartial(string $name): bool`: Returns `true` if a partial with the given name is registered.
-  Useful alongside `registerPartial()` to implement lazy partial loading.
+  Useful alongside `registerPartial()` to implement dynamic partial loading.
 
-* `registerPartial(string $name, \Closure $partial): void`: Registers a compiled partial closure for the
-  remainder of the render. The closure must be produced by `Handlebars::compile`.
+* `registerPartial(string $name, Closure $partial): void`: Registers a compiled partial closure for the
+  remainder of the render. The closure can be produced via `Handlebars::compile`, or by importing a
+  cached closure created with `Handlebars::precompile`.
 
 > [!NOTE]  
 > `isset($options->fn)` and `isset($options->inverse)` return `true` if the helper was called as a block,
@@ -234,6 +299,16 @@ All syntax and language features from Handlebars.js 4.7.9 should work the same i
 with the following exceptions:
 
 * Custom Decorators have not been implemented, as they are [deprecated in Handlebars.js](https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md).
-* The `data` and `compat` compilation options have not been implemented.
+* The `data` compilation option has not been implemented.
 * The [runtime options to control prototype access](https://handlebarsjs.com/api-reference/runtime-options.html#options-to-control-prototype-access),
 along with the `lookupProperty()` helper option method have not been implemented, since they aren't relevant for PHP. 
+
+## Mustache Compatibility
+
+Handlebars is largely compatible with Mustache syntax, with a few notable differences:
+
+- Handlebars does not perform recursive field lookup by default.
+  The `compat` compile option must be set to enable this behavior.
+- Alternative Mustache delimiters (e.g. `{{=<% %>=}}`) are not supported.
+- Spaces are not allowed between the opening `{{` and a command character such as `#`, `/`, or `>`.
+  For example, `{{> partial}}` works but `{{ > partial}}` does not.

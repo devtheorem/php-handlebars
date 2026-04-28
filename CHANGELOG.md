@@ -3,6 +3,52 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0] Compat Mode - 2026-04-27
+
+### Added
+- `compat` compile option to enable recursive field lookup. When set to `true`, if a template variable is not
+  found in the current scope it will automatically be looked up in parent scopes, matching Mustache's behavior.
+- Official [Mustache spec](https://github.com/mustache/spec) tests are now run to verify `compat` functionality.
+- `partialResolver` runtime option: a `Closure(string $name): ?Closure` called lazily the first time each
+  unresolved partial is called. This replaces the previous compile-time `partialResolver` option.
+
+### Changed
+- Improved compiler performance and reduced memory usage by simplifying internal state.
+- Optimized rendering of indented partials.
+
+### Removed
+- `partials` and `partialResolver` compile-time options. These options baked partials into the generated PHP closure,
+  causing each partial to be recompiled and duplicated across every template that referenced it.
+  Partials should now be supplied when invoking a template via the `partials` or `partialResolver` runtime options.
+
+  **Upgrade:** if you were passing partials via `Options`, move them to the runtime options instead:
+  ```php
+  // Before
+  $template = Handlebars::compile($source, new Options(
+      partials: ['footer' => '<footer>...</footer>'],
+      partialResolver: fn($name) => loadTemplate($name),
+  ));
+  echo $template($data);
+
+  // After
+  $template = Handlebars::compile($source);
+  echo $template($data, [
+      'partials' => ['footer' => Handlebars::compile('<footer>...</footer>')],
+      'partialResolver' => fn($name) => Handlebars::compile(loadTemplate($name)),
+  ]);
+  ```
+  This change makes it possible to precompile all partials in a directory, and then lazily import them
+  on first use for optimal performance. See the example in the readme.
+
+### Fixed
+- Failure to invoke `@data` variables containing a closure when passed to `if` or `unless` helpers.
+- Hoisted block closures leaked into the caller's scope when a precompiled template was loaded via `include`/`require`.
+- Hash arguments passed to a partial were ignored when the partial was invoked in certain non-array contexts.
+- Block helpers returning a nested or non-list array were not stringified correctly.
+- Partials with literal names (`{{> true}}`, `{{> false}}`, `{{> null}}`, `{{> undefined}}`) were not
+  resolved correctly: boolean names caused a type error, and `null`/`undefined` silently rendered nothing.
+
+
 ## [1.2.3] Hoisted Closures - 2026-04-10
 ### Changed
 - Improved rendering performance by hoisting the closures for block bodies and `{{else}}` clauses,
@@ -20,14 +66,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fixing numerous edge cases related to helpers and `@data` variables.
 
 ### Fixed
-- `../` expressions inside `{{else}}` blocks of `{{#if}}`, `{{#unless}}`, `{{#with}}`, and sections invoking `blockHelperMissing` resolved to the wrong context level.
-- A missing helper called via multi-segment path in a subexpression or `@data` variable failed to invoke `helperMissing`.
-- A non-function context property used as a helper (e.g. `{{foo "arg"}}` where `foo` is not a closure) incorrectly called `helperMissing` rather than throwing a distinct error.
+- `../` expressions inside `{{else}}` blocks of `{{#if}}`, `{{#unless}}`, `{{#with}}`,
+  and sections invoking `blockHelperMissing` resolved to the wrong context level.
+- A missing helper called via a `@data` variable or multi-segment path in a subexpression failed to invoke `helperMissing`.
+- A non-function context property used as a helper (e.g. `{{foo "arg"}}` where `foo` is not a closure)
+  incorrectly called `helperMissing` rather than throwing a distinct error.
 - No error thrown when calling a missing helper via a multi-segment path with arguments (e.g. `{{foo.bar "arg"}}`).
 - Closures in context data could not be used as block helpers (e.g. `{{#fn}}...{{/fn}}` where `fn` is a closure).
 - Closures in context data or `@data` variables failed to be passed `HelperOptions` as the last argument in certain cases.
 - Templates with hash arguments on complex paths (e.g. `{{foo.bar arg=val}}`) were not compiled correctly.
-- Closures in context data were not invoked when accessed via a multi-segment path (e.g. `{{foo.bar}}`), or via a literal path (e.g. `{{"foo"}}`) in `knownHelpersOnly` mode.
+- Closures in context data were not invoked when accessed via a multi-segment path (e.g. `{{foo.bar}}`),
+  or via a literal path (e.g. `{{"foo"}}`) in `knownHelpersOnly` mode.
 - `@data` variables incorrectly took priority over helpers with the same name.
 - `knownHelpersOnly` was not enforced for `@data` expressions or complex paths used with arguments.
 
@@ -245,6 +294,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[2.0.0]: https://github.com/devtheorem/php-handlebars/compare/v1.2.3...v2.0.0
 [1.2.3]: https://github.com/devtheorem/php-handlebars/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/devtheorem/php-handlebars/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/devtheorem/php-handlebars/compare/v1.2.0...v1.2.1
