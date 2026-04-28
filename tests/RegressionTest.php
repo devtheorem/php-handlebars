@@ -2,6 +2,7 @@
 
 namespace DevTheorem\Handlebars\Test;
 
+use Closure;
 use DevTheorem\Handlebars\Handlebars;
 use DevTheorem\Handlebars\HelperOptions;
 use DevTheorem\Handlebars\Options;
@@ -12,7 +13,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * @phpstan-type RegIssue array{
  *     template: string, expected: string, data?: mixed, options?: Options,
- *     helpers?: array<string, \Closure>, partials?: array<string, string>,
+ *     helpers?: array<Closure>, partials?: array<string>,
  *     vars?: array<mixed>,
  * }
  */
@@ -44,8 +45,8 @@ class RegressionTest extends TestCase
     }
 
     /**
-     * @param array<string, \Closure> $helpers
-     * @param array<string, string> $partials
+     * @param array<Closure> $helpers
+     * @param array<string> $partials
      * @param array<mixed> $vars
      */
     #[DataProvider("helperProvider")]
@@ -1153,6 +1154,18 @@ class RegressionTest extends TestCase
                 'partials' => ['myPartial' => '{{key}}'],
                 'data' => ['str' => 'hello'],
                 'expected' => 'val',
+            ],
+
+            'partials can have literal names' => [
+                'template' => '{{> 42}} {{> true}} {{> false}} {{> null}} {{> undefined}}',
+                'partials' => [
+                    '42' => 'p42',
+                    'true' => 'pTrue',
+                    'false' => 'pFalse',
+                    'null' => 'pNull',
+                    'undefined' => 'pUndefined',
+                ],
+                'expected' => 'p42 pTrue pFalse pNull pUndefined',
             ],
         ];
     }
@@ -2509,6 +2522,40 @@ class RegressionTest extends TestCase
                 'helpers' => ['foo' => fn() => 'helper'],
                 'expected' => 'helper',
                 'options' => new Options(assumeObjects: true),
+            ],
+
+            'helpers can have literal names' => [
+                'template' => '{{42}} {{true}} {{false}} {{null}} {{undefined}}',
+                'helpers' => [
+                    '42' => fn() => 'h42',
+                    'true' => fn() => 'hTrue',
+                    'false' => fn() => 'hFalse',
+                    'null' => fn() => 'hNull',
+                    'undefined' => fn() => 'hUndefined',
+                ],
+                'expected' => 'h42 hTrue hFalse hNull hUndefined',
+            ],
+            'closures in data can have literal names' => [
+                'template' => '{{42}} {{true}} {{false}} {{null}} {{undefined}}',
+                'data' => [
+                    '42' => fn() => 'c42',
+                    'true' => fn() => 'cTrue',
+                    'false' => fn() => 'cFalse',
+                    'null' => fn() => 'cNull',
+                    'undefined' => fn() => 'cUndefined',
+                ],
+                'expected' => 'c42 cTrue cFalse cNull cUndefined',
+            ],
+            'context fields can have literal names' => [
+                'template' => '{{42}} {{true}} {{false}} {{null}} {{undefined}}',
+                'data' => [
+                    '42' => 'd42',
+                    'true' => 'dTrue',
+                    'false' => 'dFalse',
+                    'null' => 'dNull',
+                    'undefined' => 'dUndefined',
+                ],
+                'expected' => 'd42 dTrue dFalse dNull dUndefined',
             ],
         ];
     }

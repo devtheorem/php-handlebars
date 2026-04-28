@@ -410,12 +410,10 @@ final class Compiler
         if ($name instanceof SubExpression) {
             $p = $this->SubExpression($name);
             $this->context->usedDynPartial++;
-        } elseif ($name instanceof PathExpression || $name instanceof StringLiteral || $name instanceof NumberLiteral) {
+        } else {
             $partialName = $this->resolvePartialName($name);
             $p = self::quote($partialName);
             $this->resolveAndCompilePartial($partialName);
-        } else {
-            $p = $this->compileExpression($name);
         }
 
         $vars = $this->compilePartialParams($statement->params, $statement->hash);
@@ -452,36 +450,29 @@ final class Compiler
         $name = $statement->name;
         $depsBefore = count($this->programDepStack[array_key_last($this->programDepStack)]);
         $body = $this->compileProgram($statement->program);
-        $partialName = null;
-        $found = false;
 
-        if ($name instanceof PathExpression || $name instanceof StringLiteral || $name instanceof NumberLiteral) {
-            $partialName = $this->resolvePartialName($name);
-            $p = self::quote($partialName);
-            $found = ($this->context->usedPartial[$partialName] ?? '') !== '';
+        $partialName = $this->resolvePartialName($name);
+        $p = self::quote($partialName);
+        $found = ($this->context->usedPartial[$partialName] ?? '') !== '';
 
-            if (!$found && !str_starts_with($partialName, '@partial-block')) {
-                $cnt = $this->resolvePartial($partialName);
-                if ($cnt !== null) {
-                    $this->context->usedPartial[$partialName] = $cnt;
-                    $this->compilePartialTemplate($partialName, $cnt);
-                    $found = true;
-                }
+        if (!$found && !str_starts_with($partialName, '@partial-block')) {
+            $cnt = $this->resolvePartial($partialName);
+            if ($cnt !== null) {
+                $this->context->usedPartial[$partialName] = $cnt;
+                $this->compilePartialTemplate($partialName, $cnt);
+                $found = true;
             }
-
-            // Mark as known for runtime resolution; not added to partialCode so $blockParams scope is preserved.
-            $this->context->usedPartial[$partialName] ??= '';
-        } else {
-            $p = $this->compileExpression($name);
         }
 
+        // Mark as known for runtime resolution; not added to partialCode so $blockParams scope is preserved.
+        $this->context->usedPartial[$partialName] ??= '';
         $vars = $this->compilePartialParams($statement->params, $statement->hash);
 
         // Capture $blockParams and any hoisted program vars so the partial block body can access them.
         $useVars = $this->buildInlineUseClause($depsBefore);
         $bodyClosure = self::templateClosure($body, useVars: $useVars);
 
-        if ($partialName !== null && !$found) {
+        if (!$found) {
             // Register the block body as a fallback partial only if no runtime partial with this name exists yet.
             $parts[] = "(isset(\$cx->inlinePartials[$p]) || isset(\$cx->partials[$p]) ? '' : "
                 . self::getRuntimeFunc('setInlinePartial', "\$cx, $p, $bodyClosure") . ')';
@@ -798,7 +789,7 @@ final class Compiler
     /**
      * Resolve the name of a non-SubExpression partial reference.
      */
-    private function resolvePartialName(PathExpression|StringLiteral|NumberLiteral $name): string
+    private function resolvePartialName(PathExpression|Literal $name): string
     {
         return $name instanceof PathExpression ? $name->original : $this->getLiteralKeyName($name);
     }
