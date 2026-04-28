@@ -1,0 +1,10 @@
+<li class="nav-item{{#active}} active{{/active}}">
+    <a href="{{url}}">{{#icon}}<i class="icon-{{icon}}"></i> {{/icon}}{{label}}{{#badge}} <span class="badge">{{badge}}</span>{{/badge}}</a>
+    {{#hasChildren}}
+    <ul class="dropdown">
+        {{#children}}
+        <li><a href="{{url}}">{{label}}</a></li>
+        {{/children}}
+    </ul>
+    {{/hasChildren}}
+</li>

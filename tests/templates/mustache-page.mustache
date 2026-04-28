@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="{{lang}}">
+<head>
+    <meta charset="UTF-8">
+    <title>{{pageTitle}}</title>
+    {{#stylesheets}}
+    <link rel="stylesheet" href="{{url}}"{{#media}} media="{{media}}"{{/media}}>
+    {{/stylesheets}}
+</head>
+<body class="{{bodyClass}}">
+
+{{! ==================== HEADER ==================== }}
+<header id="site-header"{{#sticky}} data-sticky="true"{{/sticky}}>
+    <nav>
+        <a class="logo" href="{{rootUrl}}">
+            {{{logoHtml}}}
+            <span>{{siteName}}</span>
+        </a>
+        <ul class="nav-links">
+            {{#navItems}}
+            {{> mustache-nav-item}}
+            {{/navItems}}
+        </ul>
+        {{#user}}
+        <div class="user-menu">
+            <img src="{{avatar}}" alt="{{name}}" width="32" height="32">
+            <span>{{name}}</span>
+            <ul class="user-dropdown">
+                <li><a href="/profile/{{id}}">{{profileLabel}}</a></li>
+                <li><a href="/settings">{{settingsLabel}}</a></li>
+                {{#isAdmin}}<li><a href="/admin">{{adminLabel}}</a></li>{{/isAdmin}}
+                <li class="divider"></li>
+                <li><a href="/logout">{{logoutLabel}}</a></li>
+            </ul>
+        </div>
+        {{/user}}
+        {{^user}}<a class="btn btn-primary" href="/login">{{loginLabel}}</a>{{/user}}
+    </nav>
+</header>
+
+{{! ==================== ALERTS ==================== }}
+{{#alerts}}
+{{> mustache-alert}}
+{{/alerts}}
+
+{{! ==================== MAIN CONTENT ==================== }}
+<main id="main-content">
+    <div class="container">
+        {{> mustache-breadcrumbs}}
+        {{> mustache-page-header}}
+
+        {{#hasItems}}
+        <div class="table-responsive">
+            <table class="{{tableClass}}">
+                <thead>
+                <tr>
+                    {{#columns}}
+                    <th class="{{thClass}}">
+                        {{#sortable}}<a href="{{sortUrl}}">{{label}}</a>{{/sortable}}
+                        {{^sortable}}{{label}}{{/sortable}}
+                    </th>
+                    {{/columns}}
+                    {{#showActions}}<th class="actions-col">{{actionsLabel}}</th>{{/showActions}}
+                </tr>
+                </thead>
+                <tbody>
+                {{#rows}}
+                <tr class="{{rowClass}}" data-id="{{id}}" data-currency="{{currency}}">
+                    {{#cells}}
+                    <td class="{{cellClass}}">{{{content}}}</td>
+                    {{/cells}}
+                    {{#hasActions}}
+                    <td class="actions">
+                        {{#actions}}
+                        <a href="{{url}}" class="btn btn-sm btn-{{style}}"{{#confirm}} data-confirm="{{confirmMessage}}"{{/confirm}} title="{{label}}">
+                            <i class="icon-{{icon}}"></i>
+                        </a>
+                        {{/actions}}
+                    </td>
+                    {{/hasActions}}
+                </tr>
+                {{/rows}}
+                </tbody>
+                {{#showTotals}}
+                <tfoot>
+                <tr class="totals">
+                    {{#totalCells}}
+                    <td>{{content}}</td>
+                    {{/totalCells}}
+                    {{#showActions}}<td></td>{{/showActions}}
+                </tr>
+                </tfoot>
+                {{/showTotals}}
+            </table>
+        </div>
+        {{> mustache-pagination}}
+        {{/hasItems}}
+
+        {{^hasItems}}
+        <div class="empty-state">
+            <h3>{{emptyHeading}}</h3>
+            <p>{{emptyMessage}}</p>
+        </div>
+        {{/hasItems}}
+
+        {{#sidePanels}}
+        {{> mustache-side-panel}}
+        {{/sidePanels}}
+    </div>
+</main>
+
+{{! ==================== FOOTER ==================== }}
+<footer id="site-footer">
+    <div class="container">
+        <div class="footer-cols">
+            {{#footerColumns}}
+            {{> mustache-footer-col}}
+            {{/footerColumns}}
+        </div>
+        <div class="footer-bottom">
+            <p>{{copyright}} {{currentYear}} {{siteName}}</p>
+            {{#socialLinks}}
+            <ul class="social-links">
+                {{#items}}
+                <li><a href="{{url}}" aria-label="{{name}}"><i class="icon-{{icon}}"></i></a></li>
+                {{/items}}
+            </ul>
+            {{/socialLinks}}
+        </div>
+    </div>
+</footer>
+
+{{! ==================== SCRIPTS ==================== }}
+{{#scripts}}
+<script src="{{url}}"{{#defer}} defer{{/defer}}{{#async}} async{{/async}}></script>
+{{/scripts}}
+
+</body>
+</html>
