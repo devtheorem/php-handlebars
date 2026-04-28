@@ -7,13 +7,18 @@ use DevTheorem\HandlebarsParser\Parser;
 use DevTheorem\HandlebarsParser\ParserFactory;
 
 /**
- * @phpstan-type RenderOptions array{data?: array<mixed>, helpers?: array<string, Closure>, partials?: array<string, Closure>}
+ * @phpstan-type RenderOptions array{
+ *     data?: array<mixed>,
+ *     helpers?: array<Closure>,
+ *     partials?: array<Closure>,
+ *     partialResolver?: Closure(string): ?Closure,
+ * }
  * @phpstan-type Template Closure(mixed=, RenderOptions=): string
  */
 final class Handlebars
 {
     private static ?Parser $parser = null;
-    private static ?Compiler $compiler = null;
+    private static Compiler $compiler;
 
     /**
      * Compiles a template so it can be executed immediately.
@@ -30,12 +35,10 @@ final class Handlebars
     public static function precompile(string $template, Options $options = new Options()): string
     {
         self::$parser ??= (new ParserFactory())->create();
-        self::$compiler ??= new Compiler(self::$parser);
+        self::$compiler ??= new Compiler();
 
-        $context = new Context($options);
         $program = self::$parser->parse($template, $options->ignoreStandalone);
-        $code = self::$compiler->compile($program, $context);
-        self::$compiler->handleDynamicPartials();
+        $code = self::$compiler->compile($program, $options);
 
         return self::$compiler->composePHPRender($code);
     }

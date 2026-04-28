@@ -21,7 +21,6 @@ use DevTheorem\HandlebarsParser\Ast\Program;
 use DevTheorem\HandlebarsParser\Ast\StringLiteral;
 use DevTheorem\HandlebarsParser\Ast\SubExpression;
 use DevTheorem\HandlebarsParser\Ast\UndefinedLiteral;
-use DevTheorem\HandlebarsParser\Parser;
 
 /** @internal */
 enum SexprType
@@ -36,7 +35,7 @@ enum SexprType
  */
 final class Compiler
 {
-    private Context $context;
+    private Options $options;
 
     /**
      * Compile-time stack of block param name arrays, innermost first.
@@ -62,13 +61,9 @@ final class Compiler
      */
     private array $programDepStack = [];
 
-    public function __construct(
-        private readonly Parser $parser,
-    ) {}
-
-    public function compile(Program $program, Context $context): string
+    public function compile(Program $program, Options $options): string
     {
-        $this->context = $context;
+        $this->options = $options;
         $this->blockParamValues = [];
         $this->nextProgramId = 0;
         $this->programDefs = [];
@@ -85,24 +80,22 @@ final class Compiler
      */
     public function composePHPRender(string $code): string
     {
-        $partials = implode(",\n", $this->context->partialCode);
         $defs = $this->programDefs ? "\n " . implode("\n ", $this->programDefs) : '';
-        $closure = self::templateClosure($code, $partials, $defs . "\n \$in = &\$cx->data['root'];");
+        $closure = self::templateClosure($code, $defs . "\n \$in = &\$cx->data['root'];");
         return "use " . Runtime::class . " as LR;\nreturn $closure;";
     }
 
     /**
-     * Build a partial closure string: a Template-format closure that calls createContext
-     * with empty compiled partials, inheriting context from $partialContext.
+     * Build a partial/template closure string.
      * @param string $code PHP expression to return (e.g. the result of compileProgram())
      * @param string $useVars comma-separated variables to capture (e.g. '$blockParams'), or '' for none
      */
-    private static function templateClosure(string $code, string $partials = '', string $stmts = '', string $useVars = ''): string
+    private static function templateClosure(string $code, string $stmts = '', string $useVars = ''): string
     {
         $use = $useVars !== '' ? " use ($useVars)" : '';
         return <<<PHP
             function (mixed \$in = null, array \$options = [])$use {
-             \$cx = LR::createContext(\$in, \$options, [$partials]);$stmts
+             \$cx = LR::createContext(\$in, \$options);$stmts
              return $code;
             }
             PHP;
@@ -166,7 +159,7 @@ final class Compiler
             if ($helperName !== null && $this->isKnownHelper($helperName)) {
                 return $this->compileBlockHelper($block, $helperName);
             }
-            if ($this->context->options->knownHelpersOnly) {
+            if ($this->options->knownHelpersOnly) {
                 $this->throwKnownHelpersOnly($name);
             }
         }
@@ -187,21 +180,21 @@ final class Compiler
         $fn = $inverted ? 'null' : $blockFn;
         $else = $inverted ? $blockFn : $this->compileProgramOrNull($block->inverse);
 
-        if (!$inverted && !$this->context->options->knownHelpersOnly) {
+        if (!$inverted && !$this->options->knownHelpersOnly) {
             if ($block->hash !== null || $block->program->blockParams) {
                 $helperExpr = self::getRuntimeFunc('resolveHelper', "\$cx, $escapedName, $var, true");
                 return $this->buildBlockHelperCall($helperExpr, $escapedName, $block, $blockFn, $else);
             }
         }
 
-        $nameArg = !$this->context->options->knownHelpersOnly && (!$inverted || $type === SexprType::Ambiguous) ? ", $escapedName" : ', null';
+        $nameArg = !$this->options->knownHelpersOnly && (!$inverted || $type === SexprType::Ambiguous) ? ", $escapedName" : ', null';
         $outerBpArg = $this->blockParamValues ? ', $blockParams' : '';
         return self::getRuntimeFunc('section', "\$cx, $var, \$in, $fn, $else$nameArg$outerBpArg");
     }
 
     private function isKnownHelper(string $helperName): bool
     {
-        return $this->context->options->knownHelpers[$helperName] ?? false;
+        return $this->options->knownHelpers[$helperName] ?? false;
     }
 
     /**
@@ -219,7 +212,7 @@ final class Compiler
             } elseif ($params || $hash || $this->isKnownHelper($simpleName)) {
                 return SexprType::Helper;
             }
-            return $this->context->options->knownHelpersOnly ? SexprType::Simple : SexprType::Ambiguous;
+            return $this->options->knownHelpersOnly ? SexprType::Simple : SexprType::Ambiguous;
         }
         return ($params || $hash) ? SexprType::Helper : SexprType::Simple;
     }
@@ -388,10 +381,6 @@ final class Compiler
         $depsBefore = count($this->programDepStack[array_key_last($this->programDepStack)]);
         $body = $this->compileProgramOrEmpty($block->program);
 
-        // Register in usedPartial so {{> partialName}} can compile without error.
-        // Do NOT add to partialCode - setInlinePartial() handles runtime registration, keeping inline partials block-scoped.
-        $this->context->usedPartial[$partialName] = '';
-
         // Capture $blockParams and any hoisted program vars so the inline partial body can access them.
         $useVars = $this->buildInlineUseClause($depsBefore);
         $escapedName = self::quote($partialName);
@@ -408,12 +397,9 @@ final class Compiler
         $name = $statement->name;
 
         if ($name instanceof SubExpression) {
-            $p = $this->SubExpression($name);
-            $this->context->usedDynPartial++;
+            $escapedName = $this->SubExpression($name);
         } else {
-            $partialName = $this->resolvePartialName($name);
-            $p = self::quote($partialName);
-            $this->resolveAndCompilePartial($partialName);
+            $escapedName = self::quote($this->resolvePartialName($name));
         }
 
         $vars = $this->compilePartialParams($statement->params, $statement->hash);
@@ -422,7 +408,7 @@ final class Compiler
         // When preventIndent is set, emit the indent as literal content (like handlebars.js
         // appendContent opcode) and invoke the partial with an empty indent so its lines are
         // not additionally indented.
-        if ($this->context->options->preventIndent && $statement->indent !== '') {
+        if ($this->options->preventIndent && $statement->indent !== '') {
             $prepend = $indent . '.';
             $indent = "''";
         } else {
@@ -430,9 +416,9 @@ final class Compiler
         }
 
         // In compat mode, pass the caller's $in so the partial inherits the full context chain.
-        $compatArg = $this->context->options->compat ? ', null, $in' : '';
+        $compatArg = $this->options->compat ? ', null, $in' : '';
 
-        return $prepend . self::getRuntimeFunc('invokePartial', "\$cx, $p, $vars, $indent$compatArg");
+        return $prepend . self::getRuntimeFunc('invokePartial', "\$cx, $escapedName, $vars, $indent$compatArg");
     }
 
     private function PartialBlockStatement(PartialBlockStatement $statement): string
@@ -447,44 +433,23 @@ final class Compiler
             }
         }
 
-        $name = $statement->name;
         $depsBefore = count($this->programDepStack[array_key_last($this->programDepStack)]);
         $body = $this->compileProgram($statement->program);
-
-        $partialName = $this->resolvePartialName($name);
-        $p = self::quote($partialName);
-        $found = ($this->context->usedPartial[$partialName] ?? '') !== '';
-
-        if (!$found && !str_starts_with($partialName, '@partial-block')) {
-            $cnt = $this->resolvePartial($partialName);
-            if ($cnt !== null) {
-                $this->context->usedPartial[$partialName] = $cnt;
-                $this->compilePartialTemplate($partialName, $cnt);
-                $found = true;
-            }
-        }
-
-        // Mark as known for runtime resolution; not added to partialCode so $blockParams scope is preserved.
-        $this->context->usedPartial[$partialName] ??= '';
+        $escapedName = self::quote($this->resolvePartialName($statement->name));
         $vars = $this->compilePartialParams($statement->params, $statement->hash);
 
         // Capture $blockParams and any hoisted program vars so the partial block body can access them.
         $useVars = $this->buildInlineUseClause($depsBefore);
         $bodyClosure = self::templateClosure($body, useVars: $useVars);
 
-        if (!$found) {
-            // Register the block body as a fallback partial only if no runtime partial with this name exists yet.
-            $parts[] = "(isset(\$cx->inlinePartials[$p]) || isset(\$cx->partials[$p]) ? '' : "
-                . self::getRuntimeFunc('setInlinePartial', "\$cx, $p, $bodyClosure") . ')';
-        }
-        $compatArg = $this->context->options->compat ? ', $in' : '';
-        $parts[] = self::getRuntimeFunc('invokePartial', "\$cx, $p, $vars, '', $bodyClosure$compatArg");
+        $compatArg = $this->options->compat ? ', $in' : '';
+        $parts[] = self::getRuntimeFunc('invokePartial', "\$cx, $escapedName, $vars, '', $bodyClosure$compatArg");
         return implode('.', $parts);
     }
 
     private function MustacheStatement(MustacheStatement $mustache): string
     {
-        $fn = (!$mustache->escaped || $this->context->options->noEscape) ? 'raw' : 'escapeExpression';
+        $fn = (!$mustache->escaped || $this->options->noEscape) ? 'raw' : 'escapeExpression';
         $path = $mustache->path;
 
         // SubExpression path: {{(path args)}} — always a direct helper call result
@@ -507,10 +472,10 @@ final class Compiler
             $escapedKey = self::quote($helperName);
             $isData = $path instanceof PathExpression && $path->data;
             $scope = $isData ? '$cx->data' : '$in';
-            $assumeObjects = $this->context->options->assumeObjects ? 'true' : 'false';
-            $strict = $this->context->options->strict ? 'true' : 'false';
+            $assumeObjects = $this->options->assumeObjects ? 'true' : 'false';
+            $strict = $this->options->strict ? 'true' : 'false';
             // @data vars are never depth-walked in compat mode.
-            $compat = ($this->context->options->compat && !$isData) ? 'true' : 'false';
+            $compat = ($this->options->compat && !$isData) ? 'true' : 'false';
             return self::getRuntimeFunc($fn, self::getRuntimeFunc('invokeAmbiguous', "\$cx, $escapedKey, $scope, $assumeObjects, $strict, $compat"));
         }
 
@@ -520,8 +485,8 @@ final class Compiler
         // For all other simple paths (multi-segment, scoped, depth, data): use lambda() with zero args,
         // matching HBS.js container.lambda which also passes no positional arguments.
         if ($path instanceof PathExpression) {
-            if ($helperName !== null && !$path->data && $this->context->options->knownHelpersOnly && !$this->context->options->compat) {
-                $cvArgs = '$in, ' . self::quote($helperName) . ($this->context->options->strict ? ', true' : '');
+            if ($helperName !== null && !$path->data && $this->options->knownHelpersOnly && !$this->options->compat) {
+                $cvArgs = '$in, ' . self::quote($helperName) . ($this->options->strict ? ', true' : '');
                 return self::getRuntimeFunc($fn, self::getRuntimeFunc('lookupValue', $cvArgs));
             }
             $expression = $this->PathExpression($path);
@@ -640,69 +605,6 @@ final class Compiler
         return implode(',', $pairs);
     }
 
-    // ── Partials ─────────────────────────────────────────────────────
-
-    private function resolveAndCompilePartial(string $name): void
-    {
-        if (isset($this->context->usedPartial[$name]) || str_starts_with($name, '@partial-block')) {
-            // @partial-block is resolved at runtime via setInlinePartial()/invokePartial()
-            return;
-        }
-
-        $cnt = $this->resolvePartial($name);
-
-        if ($cnt !== null) {
-            $this->context->usedPartial[$name] = $cnt;
-            $this->compilePartialTemplate($name, $cnt);
-            return;
-        }
-
-        // Partial not found at compile time; will be resolved at runtime.
-        $this->context->usedPartial[$name] = '';
-    }
-
-    /**
-     * Returns the resolved partial content, or null if it doesn't exist.
-     */
-    private function resolvePartial(string $name): ?string
-    {
-        if (isset($this->context->options->partials[$name])) {
-            return $this->context->options->partials[$name];
-        }
-        if ($this->context->options->partialResolver) {
-            return ($this->context->options->partialResolver)($name);
-        }
-        return null;
-    }
-
-    private function compilePartialTemplate(string $name, string $template): void
-    {
-        if (isset($this->context->partialCode[$name])) {
-            return;
-        }
-
-        $program = $this->parser->parse($template, $this->context->options->ignoreStandalone);
-        $partialCompiler = new self($this->parser);
-        $code = $partialCompiler->compile($program, $this->context);
-        $defs = $partialCompiler->programDefs ? "\n " . implode("\n ", $partialCompiler->programDefs) : '';
-        $closureExpr = self::templateClosure($code, stmts: $defs);
-
-        $this->context->partialCode[$name] = self::quote($name) . ' => ' . $closureExpr;
-    }
-
-    public function handleDynamicPartials(): void
-    {
-        if ($this->context->usedDynPartial === 0) {
-            return;
-        }
-
-        foreach ($this->context->options->partials as $name => $code) {
-            $this->resolveAndCompilePartial($name);
-        }
-    }
-
-    // ── Helpers ──────────────────────────────────────────────────────
-
     /**
      * Build the positional and named param components as separate arguments.
      * Returns '[$a,$b], [hash]'.
@@ -733,7 +635,7 @@ final class Compiler
     private function compilePartialParams(array $params, ?Hash $hash): string
     {
         if (!$params) {
-            $contextVar = $this->context->options->explicitPartialContext ? 'null' : '$in';
+            $contextVar = $this->options->explicitPartialContext ? 'null' : '$in';
         } else {
             $contextVar = $this->compileExpression($params[0]);
         }
@@ -850,7 +752,7 @@ final class Compiler
             if ($this->isKnownHelper($helperName)) {
                 return self::getRuntimeFunc('invokeHelper', "\$cx, \$cx->helpers[$escapedName], $escapedName, $compiledParams, \$in");
             }
-            if ($this->context->options->knownHelpersOnly) {
+            if ($this->options->knownHelpersOnly) {
                 $this->throwKnownHelpersOnly($helperName);
             }
             $varPath = $isData ? "\$cx->data[$escapedName] ?? null" : "\$in[$escapedName] ?? null";
@@ -907,7 +809,7 @@ final class Compiler
 
     private function buildLookupLength(string $parent): string
     {
-        $strict = $this->context->options->strict || $this->context->options->assumeObjects;
+        $strict = $this->options->strict || $this->options->assumeObjects;
         return self::getRuntimeFunc('lookupLength', $strict ? "$parent, true" : $parent);
     }
 
@@ -923,10 +825,10 @@ final class Compiler
         // Compat mode: walk the scope chain for parts[0] instead of looking up in $in directly.
         // For single-part strict paths, use compatStrictLookup (throws on miss); all other paths
         // use compatLookup (null falls through to the next depth), matching HBS.js container.lookup.
-        if ($this->context->options->compat && $base === '$in' && !$scoped) {
+        if ($this->options->compat && $base === '$in' && !$scoped) {
             $escapedName = self::quote($parts[0]);
             array_shift($parts);
-            $lookupFn = (!$parts && $this->context->options->strict && !$this->compilingHelperArgs)
+            $lookupFn = (!$parts && $this->options->strict && !$this->compilingHelperArgs)
                 ? 'compatStrictLookup'
                 : 'compatLookup';
             $base = self::getRuntimeFunc($lookupFn, '$cx, $in, ' . $escapedName);
@@ -935,13 +837,13 @@ final class Compiler
             }
             // Multi-part: $base is now the compat-resolved root; fall through to mode dispatch below.
         }
-        if ($this->context->options->assumeObjects || ($this->context->options->strict && $this->compilingHelperArgs)) {
+        if ($this->options->assumeObjects || ($this->options->strict && $this->compilingHelperArgs)) {
             // Use nullCheck chain for assumeObjects and helper arguments in strict mode.
             // This mirrors HBS.js: both paths use bare nameLookup, so only a null intermediate throws
             // (JS TypeError), while a missing key on a valid object returns null silently (JS undefined).
             return self::buildCallChain('nullCheck', $base, $parts);
         }
-        if ($this->context->options->strict) {
+        if ($this->options->strict) {
             return self::buildCallChain('strictLookup', $base, $parts, self::quote($original));
         }
         return $base . self::buildKeyAccess($parts) . ' ?? null';

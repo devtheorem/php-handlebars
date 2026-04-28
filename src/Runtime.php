@@ -160,18 +160,17 @@ final class Runtime
     }
 
     /**
-     * Build a RuntimeContext from raw render options and compile-time partial closures.
+     * Build a RuntimeContext from raw render options.
      *
      * @param RenderOptions|array{_cx?: RuntimeContext} $options
-     * @param array<string, Closure> $compiledPartials
      */
-    public static function createContext(mixed $context, array $options, array $compiledPartials): RuntimeContext
+    public static function createContext(mixed $context, array $options): RuntimeContext
     {
         $parentCx = $options['_cx'] ?? null;
         $data = $options['data'] ?? [];
 
         if ($parentCx !== null) {
-            // Partial context: reuse the parent's already-merged helpers and partials directly.
+            // Partial context: reuse the parent's already-merged helpers, partials, and resolver directly.
             // PHP copy-on-write ensures inlinePartials is only copied if the partial registers a new {{#* inline}} partial.
             // invokePartial() always passes the caller's current data frame via options, so partials inherit @index, @key, etc.
             // Unset 'root' first to break the reference established by `$in = &$cx->data['root']` in the
@@ -181,6 +180,7 @@ final class Runtime
             return new RuntimeContext(
                 helpers: $parentCx->helpers,
                 partials: $parentCx->partials,
+                partialResolver: $parentCx->partialResolver,
                 inlinePartials: $parentCx->inlinePartials,
                 depths: $parentCx->depths,
                 data: $data,
@@ -190,7 +190,8 @@ final class Runtime
         $data['root'] ??= $context;
         return new RuntimeContext(
             helpers: array_replace(Runtime::defaultHelpers(), $options['helpers'] ?? []),
-            partials: array_replace($compiledPartials, $options['partials'] ?? []),
+            partials: $options['partials'] ?? [],
+            partialResolver: $options['partialResolver'] ?? null,
             data: $data,
         );
     }
@@ -387,8 +388,20 @@ final class Runtime
         return $a;
     }
 
+    private static function resolveAndCachePartial(RuntimeContext $cx, string $name): ?Closure
+    {
+        if ($cx->partialResolver === null) {
+            return null;
+        }
+        $fn = ($cx->partialResolver)($name);
+        if ($fn !== null) {
+            $cx->partials[$name] = $fn;
+        }
+        return $fn;
+    }
+
     /**
-     * @param array<string, mixed> $hash named hash overrides merged into the context
+     * @param array<mixed> $hash named hash overrides merged into the context
      * @param string $indent whitespace to prepend to each line of the partial's output
      * @param mixed $callerIn When compat mode is enabled, the caller's current $in pushed onto depths so
      *                        the partial can walk up to the caller's scope (mirrors HBS.js compat depths).
@@ -402,10 +415,17 @@ final class Runtime
             null => null,
             // inlinePartials (block-scoped {{#* inline}}) take precedence over partials (persistent),
             // mirroring Handlebars.js which checks options.partials before env.partials.
-            default => $cx->inlinePartials[$name] ?? $cx->partials[$name] ?? null,
+            // Falls back to partialResolver for lazy loading; result is cached in $cx->partials.
+            default => $cx->inlinePartials[$name] ?? $cx->partials[$name] ?? self::resolveAndCachePartial($cx, $name),
         };
 
+        $context = $hash ? self::extend($context, $hash) : $context;
+
         if ($fn === null) {
+            if ($partialBlock !== null && $name !== null) {
+                // Partial not found; render the block body as failover (mirrors HBS.js behavior).
+                return $partialBlock($context, ['data' => $cx->data, '_cx' => $cx]);
+            }
             $name ??= 'undefined'; // match HBS.js error
             throw new \Exception("The partial $name could not be found");
         }
@@ -422,7 +442,6 @@ final class Runtime
             };
         }
 
-        $context = $hash ? self::extend($context, $hash) : $context;
         // In compat mode, push the caller's current context onto depths before creating the partial
         // context so the partial can walk up to the caller's scope. createContext() (called inside
         // the partial closure) copies $parentCx->depths, so the push must happen here, before $fn().
@@ -483,7 +502,7 @@ final class Runtime
      * Equivalent to the invokeHelper/invokeKnownHelper opcodes in the Handlebars.js compiler.
      *
      * @param array<mixed> $positional
-     * @param array<string, mixed> $hash
+     * @param array<mixed> $hash
      */
     public static function invokeHelper(RuntimeContext $cx, Closure $helper, string $name, array $positional, array $hash, mixed &$_this): mixed
     {
@@ -517,7 +536,7 @@ final class Runtime
      * Invoke a resolved block helper Closure with fn/inverse callbacks and a HelperOptions instance.
      *
      * @param array<mixed> $positional
-     * @param array<string, mixed> $hash
+     * @param array<mixed> $hash
      * @param mixed $_this current rendering context for the helper
      * @param Closure|null $cb callback function to render child context (null for inverted blocks)
      * @param Closure|null $else callback function to render child context when {{else}}

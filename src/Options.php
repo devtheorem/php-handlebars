@@ -2,17 +2,13 @@
 
 namespace DevTheorem\Handlebars;
 
-use Closure;
-
 final readonly class Options
 {
-    /** @var array<string, bool> */
+    /** @var array<bool> */
     public array $knownHelpers;
 
     /**
-     * @param array<string, bool> $knownHelpers
-     * @param array<string, string> $partials
-     * @param null|Closure(string):(string|null) $partialResolver
+     * @param array<bool> $knownHelpers
      */
     public function __construct(
         public bool $compat = false,
@@ -24,8 +20,6 @@ final readonly class Options
         public bool $preventIndent = false,
         public bool $ignoreStandalone = false,
         public bool $explicitPartialContext = false,
-        public array $partials = [],
-        public ?Closure $partialResolver = null,
     ) {
         $builtIn = ['if' => true, 'unless' => true, 'each' => true, 'with' => true, 'lookup' => true, 'log' => true];
         $this->knownHelpers = $knownHelpers ? array_replace($builtIn, $knownHelpers) : $builtIn;

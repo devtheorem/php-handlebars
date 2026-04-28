@@ -14,7 +14,7 @@ use PHPUnit\Framework\TestCase;
  * @phpstan-type RegIssue array{
  *     template: string, expected: string, data?: mixed, options?: Options,
  *     helpers?: array<Closure>, partials?: array<string>,
- *     vars?: array<mixed>,
+ *     partialResolver?: Closure, vars?: array<mixed>,
  * }
  */
 class RegressionTest extends TestCase
@@ -74,6 +74,7 @@ class RegressionTest extends TestCase
         ?Options $options = null,
         array $helpers = [],
         array $partials = [],
+        ?Closure $partialResolver = null,
         array $vars = [],
     ): void {
         $options ??= new Options();
@@ -82,7 +83,11 @@ class RegressionTest extends TestCase
         try {
             $template = Handlebars::template($templateSpec);
             $compiledPartials = array_map(fn($p) => Handlebars::compile($p, $options), $partials);
-            $result = $template($data, ['helpers' => $helpers, 'partials' => $compiledPartials, 'data' => $vars]);
+            $runtimeOptions = ['helpers' => $helpers, 'partials' => $compiledPartials, 'data' => $vars];
+            if ($partialResolver) {
+                $runtimeOptions['partialResolver'] = $partialResolver;
+            }
+            $result = $template($data, $runtimeOptions);
         } catch (\Throwable $e) {
             $this->fail("Error: {$e->getMessage()}\nPHP code:\n$templateSpec");
         }
@@ -1132,9 +1137,7 @@ class RegressionTest extends TestCase
 
             'partial resolver callback' => [
                 'template' => '{{>foo}} and {{>bar}}',
-                'options' => new Options(
-                    partialResolver: fn(string $name) => "PARTIAL: $name",
-                ),
+                'partialResolver' => fn(string $name) => Handlebars::compile("PARTIAL: $name"),
                 'expected' => 'PARTIAL: foo and PARTIAL: bar',
             ],
 
@@ -1204,31 +1207,15 @@ class RegressionTest extends TestCase
                 'expected' => 'outer+nested=~content~=nested-end+outer-end',
             ],
 
-            'LNC#292 - nested compile-time and runtime partials should render correctly' => [
+            'LNC#292 - nested partials should render correctly' => [
                 'template' => '{{#>outer}} {{#>compiledBlock}} inner compiledBlock {{/compiledBlock}} {{>normalTemplate}} {{/outer}}',
-                'options' => new Options(
-                    partials: [
-                        'outer' => 'outer+{{#>nested}}~{{>@partial-block}}~{{/nested}}+outer-end',
-                        'nested' => 'nested={{>@partial-block}}=nested-end',
-                    ],
-                ),
                 'partials' => [
+                    'outer' => 'outer+{{#>nested}}~{{>@partial-block}}~{{/nested}}+outer-end',
+                    'nested' => 'nested={{>@partial-block}}=nested-end',
                     'compiledBlock' => 'compiledBlock !!! {{>@partial-block}} !!! compiledBlock',
                     'normalTemplate' => 'normalTemplate',
                 ],
                 'expected' => 'outer+nested=~ compiledBlock !!!  inner compiledBlock  !!! compiledBlock normalTemplate ~=nested-end+outer-end',
-            ],
-            'LNC#292 - nested compile-time partials should render correctly' => [
-                'template' => '{ {{#>outer}} {{#>innerBlock}} Hello {{/innerBlock}} {{>simple}} {{/outer}} }',
-                'options' => new Options(
-                    partials: [
-                        'outer' => '( {{#>nested}} « {{>@partial-block}} » {{/nested}} )',
-                        'nested' => '[ {{>@partial-block}} ]',
-                        'innerBlock' => '< {{>@partial-block}} >',
-                        'simple' => 'World!',
-                    ],
-                ),
-                'expected' => '{ ( [  «  <  Hello  > World!  »  ] ) }',
             ],
             'LNC#292 - nested runtime partials should render correctly' => [
                 'template' => '{ {{#>outer}} {{#>innerBlock}} Hello {{/innerBlock}} {{>simple}} {{/outer}} }',
