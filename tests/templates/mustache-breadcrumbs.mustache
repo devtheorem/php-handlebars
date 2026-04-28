@@ -1,0 +1,12 @@
+{{#hasBreadcrumbs}}
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        {{#breadcrumbs}}
+        <li class="breadcrumb-item{{#active}} active{{/active}}">
+            {{#isLink}}<a href="{{url}}">{{label}}</a>{{/isLink}}
+            {{^isLink}}<span>{{label}}</span>{{/isLink}}
+        </li>
+        {{/breadcrumbs}}
+    </ol>
+</nav>
+{{/hasBreadcrumbs}}

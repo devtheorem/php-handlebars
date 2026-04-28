@@ -1,0 +1,15 @@
+<div class="page-header">
+    <div class="page-header-content">
+        <h1>{{heading}}{{#headingBadge}} <span class="badge badge-{{type}}">{{text}}</span>{{/headingBadge}}</h1>
+        {{#subheading}}<p class="text-muted">{{subheading}}</p>{{/subheading}}
+    </div>
+    {{#hasPageActions}}
+    <div class="page-header-actions">
+        {{#pageActions}}
+        <a href="{{url}}" class="btn btn-{{style}}">
+            {{#icon}}<i class="icon-{{icon}}"></i> {{/icon}}{{label}}
+        </a>
+        {{/pageActions}}
+    </div>
+    {{/hasPageActions}}
+</div>

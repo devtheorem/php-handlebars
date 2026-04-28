@@ -1,0 +1,26 @@
+<div class="side-panel{{#collapsible}} collapsible{{/collapsible}}{{#collapsed}} collapsed{{/collapsed}}" id="panel-{{id}}">
+    <div class="panel-header">
+        <h3>{{title}}</h3>
+        {{#collapsible}}<button class="toggle" aria-expanded="{{ariaExpanded}}">&#9660;</button>{{/collapsible}}
+    </div>
+    <div class="panel-body">
+        {{#isStats}}
+        <dl class="stats-list">
+            {{#stats}}
+            <div class="stat-item">
+                <dt>{{label}}</dt>
+                <dd>{{value}}{{#unit}} <small>{{unit}}</small>{{/unit}}{{#hasDelta}} <span class="delta delta-{{trend}}">{{delta}}</span>{{/hasDelta}}</dd>
+            </div>
+            {{/stats}}
+        </dl>
+        {{/isStats}}
+        {{#isLinks}}
+        <ul class="link-list">
+            {{#links}}
+            <li><a href="{{url}}">{{label}}</a></li>
+            {{/links}}
+        </ul>
+        {{/isLinks}}
+        {{#isHtml}}{{{htmlContent}}}{{/isHtml}}
+    </div>
+</div>

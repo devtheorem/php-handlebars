@@ -1,0 +1,6 @@
+<div class="alert alert-{{type}}{{#dismissible}} alert-dismissible fade show{{/dismissible}}" role="alert">
+    {{#icon}}<i class="icon-{{icon}}"></i> {{/icon}}{{{message}}}
+    {{#dismissible}}
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close">&times;</button>
+    {{/dismissible}}
+</div>

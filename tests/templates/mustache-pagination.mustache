@@ -1,0 +1,19 @@
+{{#pagination}}
+<nav aria-label="{{label}}">
+    <ul class="pagination">
+        <li class="page-item{{^hasPrev}} disabled{{/hasPrev}}">
+            <a class="page-link" href="{{prevUrl}}">&laquo; {{prevLabel}}</a>
+        </li>
+        {{#pages}}
+        <li class="page-item{{#active}} active{{/active}}{{#ellipsis}} disabled{{/ellipsis}}">
+            {{#ellipsis}}<span class="page-link">&hellip;</span>{{/ellipsis}}
+            {{^ellipsis}}<a class="page-link" href="{{url}}">{{number}}</a>{{/ellipsis}}
+        </li>
+        {{/pages}}
+        <li class="page-item{{^hasNext}} disabled{{/hasNext}}">
+            <a class="page-link" href="{{nextUrl}}">{{nextLabel}} &raquo;</a>
+        </li>
+    </ul>
+    <p class="pagination-summary">{{showingText}}</p>
+</nav>
+{{/pagination}}
