@@ -24,7 +24,7 @@
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.95",
         "jbboehr/handlebars-spec": "dev-master",
-        "phpstan/phpstan": "^2.1.51",
+        "phpstan/phpstan": "^2.1.54",
         "phpunit/phpunit": "^11.5"
     },
     "autoload": {
