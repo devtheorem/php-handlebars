@@ -2171,10 +2171,10 @@ class RegressionTest extends TestCase
                 'data' => ['name' => 'root', 'items' => [[]]],
                 'expected' => 'root',
             ],
-            'compat+strict: missing multi-part path uses depths walk for first segment' => [
+            'compat+strict: should still perform recursive lookup with a multi-part path not in context' => [
                 'template' => '{{#with child}}{{name.first}}{{/with}}',
                 'options' => new Options(compat: true, strict: true),
-                'data' => ['name' => ['first' => 'root'], 'child' => ['name' => null]],
+                'data' => ['name' => ['first' => 'root'], 'child' => ['x' => 'y']],
                 'expected' => 'root',
             ],
             'compat+strict: explicitly null property in context returned directly' => [

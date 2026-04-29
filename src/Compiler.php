@@ -823,15 +823,12 @@ final class Compiler
             return $base;
         }
         // Compat mode: walk the scope chain for parts[0] instead of looking up in $in directly.
-        // For single-part strict paths, use compatStrictLookup (throws on miss); all other paths
-        // use compatLookup (null falls through to the next depth), matching HBS.js container.lookup.
+        // For single-part strict paths, pass true to throw on miss; otherwise returns null.
         if ($this->options->compat && $base === '$in' && !$scoped) {
             $escapedName = self::quote($parts[0]);
             array_shift($parts);
-            $lookupFn = (!$parts && $this->options->strict && !$this->compilingHelperArgs)
-                ? 'compatStrictLookup'
-                : 'compatLookup';
-            $base = self::getRuntimeFunc($lookupFn, '$cx, $in, ' . $escapedName);
+            $strictArg = (!$parts && $this->options->strict && !$this->compilingHelperArgs) ? ', true' : '';
+            $base = self::getRuntimeFunc('compatLookup', '$cx, $in, ' . $escapedName . $strictArg);
             if (!$parts) {
                 return $base;
             }

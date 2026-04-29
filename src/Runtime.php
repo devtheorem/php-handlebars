@@ -230,9 +230,7 @@ final class Runtime
         $value = $cx->helpers[$name] ?? null;
         if ($value === null) {
             if ($compat) {
-                $value = $strict
-                    ? self::compatStrictLookup($cx, $_this, $name)
-                    : self::compatLookup($cx, $_this, $name);
+                $value = self::compatLookup($cx, $_this, $name, $strict);
             } elseif ($strict) {
                 $value = self::strictLookup($_this, $name, $name);
             } else {
@@ -249,40 +247,23 @@ final class Runtime
     }
 
     /**
-     * Non-strict compat depths-walk for a single key, equivalent to HBS.js container.lookup(depths, name).
+     * Compat depths-walk for a single key, equivalent to HBS.js container.lookup / container.strictLookup.
      * Checks $in first, then walks $cx->depths from the closest ancestor outward.
-     * Null values are skipped (treated as not found), matching HBS.js container.lookup's `result != null` check.
+     * Uses array_key_exists so explicit null values shadow parent contexts (Mustache semantics).
+     * When $strict is true, throws for a key absent from all frames; otherwise returns null.
      */
-    public static function compatLookup(RuntimeContext $cx, mixed $in, string $name): mixed
+    public static function compatLookup(RuntimeContext $cx, mixed $in, string $name, bool $strict = false): mixed
     {
-        if (is_array($in) && ($value = $in[$name] ?? null) !== null) {
-            return $value;
+        if (is_array($in) && array_key_exists($name, $in)) {
+            return $in[$name];
         }
         for ($i = count($cx->depths) - 1; $i >= 0; $i--) {
             $ctx = $cx->depths[$i];
-            if (is_array($ctx) && ($v = $ctx[$name] ?? null) !== null) {
-                return $v;
+            if (is_array($ctx) && array_key_exists($name, $ctx)) {
+                return $ctx[$name];
             }
         }
-        return null;
-    }
-
-    /**
-     * Strict compat depths-walk for a single key, equivalent to HBS.js container.strictLookup(depths, name, loc).
-     * Checks $in first, then walks $cx->depths from the closest ancestor outward.
-     * Null values are treated as defined (array_key_exists), matching HBS.js container.strictLookup's `name in d` check.
-     */
-    public static function compatStrictLookup(RuntimeContext $cx, mixed $in, string $name): mixed
-    {
-        if (is_array($in) && array_key_exists($name, $in)) {
-            return self::strictLookup($in, $name, $name);
-        }
-        for ($i = count($cx->depths) - 1; $i >= 0; $i--) {
-            if (is_array($cx->depths[$i]) && array_key_exists($name, $cx->depths[$i])) {
-                return self::strictLookup($cx->depths[$i], $name, $name);
-            }
-        }
-        return self::strictLookup(null, $name, $name);
+        return $strict ? self::strictLookup(null, $name, $name) : null;
     }
 
     /**
