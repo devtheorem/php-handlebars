@@ -114,12 +114,20 @@ final class Runtime
      * Strict-mode key lookup: throw if $base is not an array or $key is absent.
      * Unlike the null-coalescing pattern, this allows null values when the key exists.
      */
-    public static function strictLookup(mixed $base, string $key, string $original): mixed
+    public static function strictLookup(mixed $base, string $key): mixed
     {
-        if (!is_array($base) || !array_key_exists($key, $base)) {
-            throw new \Exception('"' . $original . '" not defined');
+        if (is_array($base)) {
+            if (array_key_exists($key, $base)) {
+                return $base[$key];
+            }
         }
-        return $base[$key];
+        $desc = match (true) {
+            is_bool($base) => $base ? 'true' : 'false',
+            is_int($base) || is_float($base) => (string) $base,
+            is_string($base) => "\"$base\"",
+            default => get_debug_type($base),
+        };
+        throw new \Exception('"' . $key . '" not defined in ' . $desc);
     }
 
     /**
@@ -146,17 +154,7 @@ final class Runtime
         if (is_array($base)) {
             return array_key_exists('length', $base) ? $base['length'] : count($base);
         }
-        if ($strict) {
-            $desc = match (true) {
-                $base === null => 'null',
-                is_bool($base) => $base ? 'true' : 'false',
-                is_int($base) || is_float($base) => (string) $base,
-                is_string($base) => "\"$base\"",
-                default => get_debug_type($base),
-            };
-            throw new \Exception("\"length\" not defined in $desc");
-        }
-        return null;
+        return $strict ? self::strictLookup($base, 'length') : null;
     }
 
     /**
@@ -213,7 +211,7 @@ final class Runtime
      */
     public static function lookupValue(mixed &$_this, string $name, bool $strict = false): mixed
     {
-        $v = $strict ? self::strictLookup($_this, $name, $name) : ($_this[$name] ?? null);
+        $v = $strict ? self::strictLookup($_this, $name) : ($_this[$name] ?? null);
         return $v instanceof Closure ? $v($_this) : $v;
     }
 
@@ -232,7 +230,7 @@ final class Runtime
             if ($compat) {
                 $value = self::compatLookup($cx, $_this, $name, $strict);
             } elseif ($strict) {
-                $value = self::strictLookup($_this, $name, $name);
+                $value = self::strictLookup($_this, $name);
             } else {
                 $value = $assumeObjects ? self::nullCheck($_this, $name) : ($_this[$name] ?? null);
             }
@@ -263,7 +261,7 @@ final class Runtime
                 return $ctx[$name];
             }
         }
-        return $strict ? self::strictLookup(null, $name, $name) : null;
+        return $strict ? self::strictLookup(null, $name) : null;
     }
 
     /**

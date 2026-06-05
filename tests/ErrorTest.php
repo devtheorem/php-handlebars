@@ -69,7 +69,7 @@ class ErrorTest extends TestCase
                 'template' => '{{foo.bar}}',
                 'options' => new Options(strict: true),
                 'data' => ['foo' => []],
-                'expected' => '"foo.bar" not defined',
+                'expected' => '"bar" not defined in array',
             ],
             'strict mode .length on null' => [
                 'template' => '{{foo.bar.length}}',
@@ -104,29 +104,29 @@ class ErrorTest extends TestCase
             'strict mode missing variable' => [
                 'template' => '{{foo}}',
                 'options' => new Options(strict: true),
-                'expected' => '"foo" not defined',
+                'expected' => '"foo" not defined in null',
             ],
             'strict mode should override helperMissing' => [
                 'template' => '{{foo}}',
                 'options' => new Options(strict: true),
                 'helpers' => ['helperMissing' => fn() => 'bad'],
-                'expected' => '"foo" not defined',
+                'expected' => '"foo" not defined in null',
             ],
             'strict mode should override blockHelperMissing' => [
                 'template' => '{{#foo}}OK{{/foo}}',
                 'options' => new Options(strict: true),
                 'helpers' => ['blockHelperMissing' => fn() => 'bad'],
-                'expected' => '"foo" not defined',
+                'expected' => '"foo" not defined in null',
             ],
             'strict mode missing block variable' => [
                 'template' => '{{#foo}}OK{{/foo}}',
                 'options' => new Options(strict: true),
-                'expected' => '"foo" not defined',
+                'expected' => '"foo" not defined in null',
             ],
             'strict mode missing unescaped variable' => [
                 'template' => '{{{foo}}}',
                 'options' => new Options(strict: true),
-                'expected' => '"foo" not defined',
+                'expected' => '"foo" not defined in null',
             ],
             'helperMissing should not be called when the identifier is a non-closure context property' => [
                 'template' => '{{foo "Hello"}}',
@@ -215,7 +215,7 @@ class ErrorTest extends TestCase
                 'template' => '{{foo.bar}}',
                 'options' => new Options(compat: true, strict: true),
                 'data' => ['foo' => []],
-                'expected' => '"foo.bar" not defined',
+                'expected' => '"bar" not defined in array',
             ],
             'compat+assumeObjects: multi-part path, intermediate missing should throw' => [
                 'template' => '{{foo.bar}}',
@@ -232,7 +232,7 @@ class ErrorTest extends TestCase
                 'template' => '{{#each items as |item|}}{{item.missing}}{{/each}}',
                 'options' => new Options(strict: true),
                 'data' => ['items' => [['val' => 'x']]],
-                'expected' => '"item.missing" not defined',
+                'expected' => '"missing" not defined in array',
             ],
         ];
     }

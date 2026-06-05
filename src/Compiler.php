@@ -166,7 +166,7 @@ final class Compiler
 
         // Simple/Literal path: look up the key in context. Complex path: compile the full expression.
         $var = $helperName !== null
-            ? $this->compileModeAwareLookup('$in', [$helperName], $helperName)
+            ? $this->compileModeAwareLookup('$in', [$helperName])
             : $this->compileExpression($block->path);
 
         if ($type === SexprType::Helper) {
@@ -493,7 +493,7 @@ final class Compiler
         } else {
             // Literal in simple position: same lambda resolution as PathExpression above.
             $literalKey = $this->getLiteralKeyName($path);
-            $expression = $this->compileModeAwareLookup('$in', [$literalKey], $literalKey);
+            $expression = $this->compileModeAwareLookup('$in', [$literalKey]);
         }
 
         return self::getRuntimeFunc($fn, self::getRuntimeFunc('lambda', $expression));
@@ -544,7 +544,7 @@ final class Compiler
                 $bpBase = "\$blockParams[$bpDepth][$bpIndex]";
                 // Skip the block param name since it has been resolved to a $blockParams index.
                 $keys = $isLength ? array_slice($path->tail, 0, -1) : $path->tail;
-                $lookup = $this->compileModeAwareLookup($bpBase, $keys, $path->original);
+                $lookup = $this->compileModeAwareLookup($bpBase, $keys);
                 return $isLength ? $this->buildLookupLength($lookup) : $lookup;
             }
         }
@@ -555,11 +555,11 @@ final class Compiler
         if ($isLength) {
             $partsExceptLength = array_slice($stringParts, 0, -1);
             return $this->buildLookupLength(
-                $this->compileModeAwareLookup($base, $partsExceptLength, $path->original, $scoped),
+                $this->compileModeAwareLookup($base, $partsExceptLength, $scoped),
             );
         }
 
-        return $this->compileModeAwareLookup($base, $stringParts, $path->original, $scoped);
+        return $this->compileModeAwareLookup($base, $stringParts, $scoped);
     }
 
     /**
@@ -699,15 +699,13 @@ final class Compiler
     /**
      * Build a left-associative chain of runtime function calls over the given parts.
      * e.g. buildCallChain('f', '$in', ['a','b']) → "LR::f(LR::f($in, 'a'), 'b')"
-     * An optional $extraArg is appended to every call's argument list.
      * @param string[] $parts
      */
-    private static function buildCallChain(string $fn, string $base, array $parts, ?string $extraArg = null): string
+    private static function buildCallChain(string $fn, string $base, array $parts): string
     {
-        $extra = $extraArg !== null ? ", $extraArg" : '';
         $expr = $base;
         foreach ($parts as $part) {
-            $expr = self::getRuntimeFunc($fn, "$expr, " . self::quote($part) . $extra);
+            $expr = self::getRuntimeFunc($fn, "$expr, " . self::quote($part));
         }
         return $expr;
     }
@@ -817,7 +815,7 @@ final class Compiler
      * Compile a mode-aware path access expression for the given base and parts.
      * @param string[] $parts
      */
-    private function compileModeAwareLookup(string $base, array $parts, string $original, bool $scoped = false): string
+    private function compileModeAwareLookup(string $base, array $parts, bool $scoped = false): string
     {
         if (!$parts) {
             return $base;
@@ -841,7 +839,7 @@ final class Compiler
             return self::buildCallChain('nullCheck', $base, $parts);
         }
         if ($this->options->strict) {
-            return self::buildCallChain('strictLookup', $base, $parts, self::quote($original));
+            return self::buildCallChain('strictLookup', $base, $parts);
         }
         return $base . self::buildKeyAccess($parts) . ' ?? null';
     }
