@@ -1356,10 +1356,19 @@ class RegressionTest extends TestCase
                 'data' => ['foo' => [1, 'a' => 'b', 5]],
                 'expected' => '0: 1,a: b,1: 5,',
             ],
-            'each over custom iterator' => [
-                'template' => '{{#each foo}}{{@key}}: {{.}},{{/each}}',
+            'each over IteratorAggregate with @first/@last' => [
+                'template' => '{{#each foo}}{{#if @first}}(first) {{/if}}{{@key}}: {{.}}{{#if @last}} (last){{/if}},{{/each}}',
                 'data' => ['foo' => new TwoDimensionIterator(2, 3)],
-                'expected' => '0x0: 0,1x0: 0,0x1: 0,1x1: 1,0x2: 0,1x2: 2,',
+                'expected' => '(first) 0x0: 0,1x0: 0,0x1: 0,1x1: 1,0x2: 0,1x2: 2 (last),',
+            ],
+            'each over generator with @first/@last' => [
+                'template' => '{{#each items}}{{#if @first}}(first) {{/if}}{{.}}{{#if @last}} (last){{/if}},{{/each}}',
+                'data' => ['items' => (static function () {
+                    yield 'a';
+                    yield 'b';
+                    yield 'c';
+                })()],
+                'expected' => '(first) a,b,c (last),',
             ],
 
             'empty array renders else block' => [
@@ -2261,6 +2270,11 @@ class RegressionTest extends TestCase
                 'template' => '{{foo.length}}',
                 'data' => ['foo' => ['length' => 'bar']],
                 'expected' => 'bar',
+            ],
+            'length key containing function' => [
+                'template' => '{{foo.length}}',
+                'data' => ['foo' => ['length' => fn() => 'testing']],
+                'expected' => 'testing',
             ],
         ];
     }

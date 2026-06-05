@@ -53,9 +53,7 @@ final class Runtime
                 if ($context instanceof Closure) {
                     $context = $context($options->scope);
                 }
-                if ($context instanceof \Traversable) {
-                    $context = iterator_to_array($context);
-                } elseif (!is_array($context)) {
+                if (!is_iterable($context)) {
                     $context = [];
                 }
                 return $options->iterate($context);
@@ -96,7 +94,7 @@ final class Runtime
             },
             'blockHelperMissing' => static function (mixed $context, HelperOptions $options): string {
                 if ($context instanceof \Traversable) {
-                    $context = iterator_to_array($context);
+                    return $options->iterate($context);
                 }
                 if (is_array($context)) {
                     return array_is_list($context) ? $options->iterate($context) : $options->fn($context);

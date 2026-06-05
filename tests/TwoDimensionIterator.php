@@ -3,45 +3,22 @@
 namespace DevTheorem\Handlebars\Test;
 
 /**
- * @implements \Iterator<string, int>
+ * @implements \IteratorAggregate<string, int>
  */
-class TwoDimensionIterator implements \Iterator
+class TwoDimensionIterator implements \IteratorAggregate
 {
-    private int $position = 0;
-    private int $x = 0;
-    private int $y = 0;
-
     public function __construct(
         private readonly int $w,
         private readonly int $h,
     ) {}
 
-    public function rewind(): void
+    /** @return \Generator<string, int> */
+    public function getIterator(): \Generator
     {
-        $this->position = 0;
-        $this->x = 0;
-        $this->y = 0;
-    }
-
-    public function current(): int
-    {
-        return $this->x * $this->y;
-    }
-
-    public function key(): string
-    {
-        return $this->x . 'x' . $this->y;
-    }
-
-    public function next(): void
-    {
-        ++$this->position;
-        $this->x = $this->position % $this->w;
-        $this->y = (int) floor($this->position / $this->w);
-    }
-
-    public function valid(): bool
-    {
-        return $this->position < $this->w * $this->h;
+        for ($pos = 0; $pos < $this->w * $this->h; $pos++) {
+            $x = $pos % $this->w;
+            $y = (int) floor($pos / $this->w);
+            yield $x . 'x' . $y => $x * $y;
+        }
     }
 }

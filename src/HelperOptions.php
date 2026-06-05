@@ -135,14 +135,32 @@ final class HelperOptions
      * HBS.js achieves the same effect by capturing the depths array at sub-program creation time
      * (before the loop), so all iterations share the same static depths reference.
      *
-     * @param array<mixed> $items
+     * For arrays, uses count() for O(1) last-item detection. For Traversable, uses one-step
+     * look-ahead (advance the iterator, check valid()) to detect the last item without buffering.
+     *
+     * @param iterable<mixed> $items
      * @internal
      */
-    public function iterate(array $items): string
+    public function iterate(iterable $items): string
     {
-        if (!$items) {
-            return $this->inverse();
+        // Normalize to Iterator for Traversable; detect emptiness before allocating anything.
+        $iter = null;
+        if (is_array($items)) {
+            if (!$items) {
+                return $this->inverse();
+            }
+        } else {
+            if ($items instanceof \Iterator) {
+                $iter = $items;
+            } else {
+                $iter = new \IteratorIterator($items);
+                $iter->rewind();
+            }
+            if (!$iter->valid()) {
+                return $this->inverse();
+            }
         }
+
         if ($this->cb === null) {
             return '';
         }
@@ -152,8 +170,6 @@ final class HelperOptions
         // Push depths and save inlinePartials once for the entire loop.
         $cx->depths[] = $this->scope;
         $savedInlinePartials = $cx->inlinePartials;
-
-        $last = count($items) - 1;
         $ret = '';
         $i = 0;
         $outerFrame = $cx->data;
@@ -167,19 +183,48 @@ final class HelperOptions
         $data = Handlebars::createFrame($outerFrame);
         $data['first'] = true;
 
-        foreach ($items as $index => $value) {
-            $data['key'] = $index;
-            $data['index'] = $i;
-            $data['last'] = $i === $last;
-            $cx->data = $data;
+        if ($iter === null) {
+            /** @var array<mixed> $items */
+            $last = count($items) - 1;
+            foreach ($items as $index => $value) {
+                $data['key'] = $index;
+                $data['index'] = $i;
+                $data['last'] = $i === $last;
+                $cx->data = $data;
 
-            if ($hasBp) {
-                $bpStack[0][0] = $value;
-                $bpStack[0][1] = $index;
+                if ($hasBp) {
+                    $bpStack[0][0] = $value;
+                    $bpStack[0][1] = $index;
+                }
+                $ret .= $cb($cx, $value, $bpStack);
+                $data['first'] = false;
+                $i++;
             }
-            $ret .= $cb($cx, $value, $bpStack);
-            $data['first'] = false;
-            $i++;
+        } else {
+            $index = $iter->key();
+            $value = $iter->current();
+            $iter->next();
+            while (true) {
+                $isLast = !$iter->valid();
+                $data['key'] = $index;
+                $data['index'] = $i;
+                $data['last'] = $isLast;
+                $cx->data = $data;
+
+                if ($hasBp) {
+                    $bpStack[0][0] = $value;
+                    $bpStack[0][1] = $index;
+                }
+                $ret .= $cb($cx, $value, $bpStack);
+                $data['first'] = false;
+                $i++;
+                if ($isLast) {
+                    break;
+                }
+                $index = $iter->key();
+                $value = $iter->current();
+                $iter->next();
+            }
         }
 
         $cx->data = $outerFrame;
