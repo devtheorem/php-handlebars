@@ -8,7 +8,7 @@ possible to swap out Mustache for Handlebars and continue using the same templat
 ## Features
 
 * Supports all Handlebars syntax and language features, including expressions, subexpressions, helpers,
-partials, hooks, `@data` variables, whitespace control, and `.length` on arrays.
+partials, hooks, `@data` variables, whitespace control, and `.length` on arrays and strings.
 * Templates are parsed using [PHP Handlebars Parser](https://github.com/devtheorem/php-handlebars-parser),
 which implements the same lexical analysis and AST grammar specification as Handlebars.js.
 * Tested against the [Handlebars.js spec](https://github.com/jbboehr/handlebars-spec)

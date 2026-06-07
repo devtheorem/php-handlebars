@@ -83,12 +83,6 @@ class ErrorTest extends TestCase
                 'data' => ['foo' => false],
                 'expected' => '"length" not defined in false',
             ],
-            'strict mode .length on string' => [
-                'template' => '{{foo.length}}',
-                'options' => new Options(strict: true),
-                'data' => ['foo' => 'hello'],
-                'expected' => '"length" not defined in "hello"',
-            ],
             'strict mode .length on integer' => [
                 'template' => '{{foo.length}}',
                 'options' => new Options(strict: true),

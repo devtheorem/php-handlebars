@@ -143,14 +143,16 @@ final class Runtime
     }
 
     /**
-     * Terminal .length lookup: returns count() for arrays (since PHP arrays have no native .length
-     * property), an explicit 'length' key if present, or null for non-array bases.
-     * When $strict is true, throws for any non-array base, mirroring HBS.js strict-mode behavior.
+     * Terminal .length lookup: returns an explicit 'length' key if present, and otherwise
+     * count() for arrays and strlen() for strings, since PHP doesn't have native .length properties.
      */
     public static function lookupLength(mixed $base, bool $strict = false): mixed
     {
         if (is_array($base)) {
             return array_key_exists('length', $base) ? $base['length'] : count($base);
+        }
+        if (is_string($base)) {
+            return strlen($base);
         }
         return $strict ? self::strictLookup($base, 'length') : null;
     }

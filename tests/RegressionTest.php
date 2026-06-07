@@ -61,7 +61,7 @@ class RegressionTest extends TestCase
     #[DataProvider("ifElseProvider")]
     #[DataProvider("sectionProvider")]
     #[DataProvider("contextProvider")]
-    #[DataProvider("arrayLengthProvider")]
+    #[DataProvider("lengthProvider")]
     #[DataProvider("dataClosuresProvider")]
     #[DataProvider("missingDataProvider")]
     #[DataProvider("syntaxProvider")]
@@ -2238,7 +2238,7 @@ class RegressionTest extends TestCase
     }
 
     /** @return array<string, RegIssue> */
-    public static function arrayLengthProvider(): array
+    public static function lengthProvider(): array
     {
         return [
             'LNC#216 - {{array.length}} evaluation support - empty array' => [
@@ -2275,6 +2275,28 @@ class RegressionTest extends TestCase
                 'template' => '{{foo.length}}',
                 'data' => ['foo' => ['length' => fn() => 'testing']],
                 'expected' => 'testing',
+            ],
+            'string length' => [
+                'template' => '{{foo.length}}',
+                'data' => ['foo' => 'hello'],
+                'expected' => '5',
+            ],
+            'string length - empty string' => [
+                'template' => '{{foo.length}}',
+                'data' => ['foo' => ''],
+                'expected' => '0',
+            ],
+            'string length - strict mode' => [
+                'template' => '{{foo.length}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => 'hello'],
+                'expected' => '5',
+            ],
+            'string length - strict mode empty string' => [
+                'template' => '{{foo.length}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => ''],
+                'expected' => '0',
             ],
         ];
     }
