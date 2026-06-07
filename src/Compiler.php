@@ -489,7 +489,7 @@ final class Compiler
                 $cvArgs = '$in, ' . self::quote($helperName) . ($this->options->strict ? ', true' : '');
                 return self::getRuntimeFunc($fn, self::getRuntimeFunc('lookupValue', $cvArgs));
             }
-            $expression = $this->PathExpression($path);
+            return self::getRuntimeFunc($fn, $this->PathExpression($path, true));
         } else {
             // Literal in simple position: same lambda resolution as PathExpression above.
             $literalKey = $this->getLiteralKeyName($path);
@@ -511,7 +511,7 @@ final class Compiler
         return $this->compileHelperCall($helperName, $path, $expression->params, $expression->hash);
     }
 
-    private function PathExpression(PathExpression $path): string
+    private function PathExpression(PathExpression $path, bool $wrapLambda = false): string
     {
         $data = $path->data;
         $depth = $path->depth;
@@ -528,10 +528,6 @@ final class Compiler
             $stringParts = $path->parts;
         }
 
-        if (!$stringParts) {
-            return $base;
-        }
-
         $isLength = end($stringParts) === 'length';
         $isCurrentContextPath = !$hasSubExprHead && !$data && $depth === 0;
         $scoped = $isCurrentContextPath && self::scopedId($path);
@@ -541,25 +537,26 @@ final class Compiler
             $bp = $this->lookupBlockParam($path->head);
             if ($bp !== null) {
                 [$bpDepth, $bpIndex] = $bp;
-                $bpBase = "\$blockParams[$bpDepth][$bpIndex]";
+                $base = "\$blockParams[$bpDepth][$bpIndex]";
                 // Skip the block param name since it has been resolved to a $blockParams index.
-                $keys = $isLength ? array_slice($path->tail, 0, -1) : $path->tail;
-                $lookup = $this->compileModeAwareLookup($bpBase, $keys);
-                return $isLength ? $this->buildLookupLength($lookup) : $lookup;
+                $stringParts = $path->tail;
             }
         }
 
-        // Handle .length: compile parent path through the normal mode-aware logic, then wrap in
-        // lookupLength() at runtime. This mirrors HBS.js, where .length is a normal property
-        // access with no compile-time special casing.
         if ($isLength) {
-            $partsExceptLength = array_slice($stringParts, 0, -1);
-            return $this->buildLookupLength(
-                $this->compileModeAwareLookup($base, $partsExceptLength, $scoped),
-            );
+            array_pop($stringParts);
+        }
+        $result = $this->compileModeAwareLookup($base, $stringParts, $scoped);
+
+        if ($isLength) {
+            // Handle .length: compile parent path through the normal mode-aware logic, then wrap in
+            // lookupLength() at runtime. This mirrors HBS.js, where .length is a normal property
+            // access with no compile-time special casing.
+            $strict = $this->options->strict || $this->options->assumeObjects;
+            $result = self::getRuntimeFunc('lookupLength', $strict ? "$result, true" : $result);
         }
 
-        return $this->compileModeAwareLookup($base, $stringParts, $scoped);
+        return ($wrapLambda && !$isLength) ? self::getRuntimeFunc('lambda', $result) : $result;
     }
 
     /**
@@ -803,12 +800,6 @@ final class Compiler
             return "''";
         }
         return $this->compileProgram($program);
-    }
-
-    private function buildLookupLength(string $parent): string
-    {
-        $strict = $this->options->strict || $this->options->assumeObjects;
-        return self::getRuntimeFunc('lookupLength', $strict ? "$parent, true" : $parent);
     }
 
     /**

@@ -143,18 +143,23 @@ final class Runtime
     }
 
     /**
-     * Terminal .length lookup: returns an explicit 'length' key if present, and otherwise
-     * count() for arrays and strlen() for strings, since PHP doesn't have native .length properties.
+     * Terminal .length lookup: returns an explicit 'length' key if present
+     * (invoking with no args if it's a Closure), and otherwise count() for arrays
+     * and strlen() for strings, since these don't have native .length properties in PHP.
      */
     public static function lookupLength(mixed $base, bool $strict = false): mixed
     {
         if (is_array($base)) {
-            return array_key_exists('length', $base) ? $base['length'] : count($base);
-        }
-        if (is_string($base)) {
+            if (!array_key_exists('length', $base)) {
+                return count($base);
+            }
+            $v = $base['length'];
+        } elseif (is_string($base)) {
             return strlen($base);
+        } else {
+            $v = $strict ? self::strictLookup($base, 'length') : null;
         }
-        return $strict ? self::strictLookup($base, 'length') : null;
+        return $v instanceof Closure ? $v() : $v;
     }
 
     /**
@@ -209,7 +214,7 @@ final class Runtime
      * (PHP equivalent of JS fn.call(context), where context binds as `this` with no positional args).
      * When $strict is true, throws for missing keys.
      */
-    public static function lookupValue(mixed &$_this, string $name, bool $strict = false): mixed
+    public static function lookupValue(mixed $_this, string $name, bool $strict = false): mixed
     {
         $v = $strict ? self::strictLookup($_this, $name) : ($_this[$name] ?? null);
         return $v instanceof Closure ? $v($_this) : $v;
