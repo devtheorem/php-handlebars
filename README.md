@@ -9,6 +9,7 @@ possible to swap out Mustache for Handlebars and continue using the same templat
 
 * Supports all Handlebars syntax and language features, including expressions, subexpressions, helpers,
 partials, hooks, `@data` variables, whitespace control, and `.length` on arrays and strings.
+* Arrays and objects can both be used as context values. `{{#each}}` over an object iterates its public properties.
 * Templates are parsed using [PHP Handlebars Parser](https://github.com/devtheorem/php-handlebars-parser),
 which implements the same lexical analysis and AST grammar specification as Handlebars.js.
 * Tested against the [Handlebars.js spec](https://github.com/jbboehr/handlebars-spec)
@@ -24,8 +25,8 @@ PHP Handlebars compiles and executes complex templates over 40% faster than Ligh
 
 | Library            | Compile time | Runtime | Total time | Peak memory usage |
 |--------------------|--------------|---------|------------|-------------------|
-| LightnCandy 1.2.6  | 5.2 ms       | 2.8 ms  | 8.0 ms     | 5.3 MB            |
-| PHP Handlebars 2.0 | 3.0 ms       | 1.4 ms  | 4.4 ms     | 1.8 MB            |
+| LightnCandy 1.2.6  | 5.0 ms       | 2.4 ms  | 7.4 ms     | 5.3 MB            |
+| PHP Handlebars 2.1 | 2.8 ms       | 1.4 ms  | 4.2 ms     | 1.8 MB            |
 
 _Tested on PHP 8.5 with the JIT enabled. See the `benchmark` branch to run the same test._
 

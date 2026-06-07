@@ -54,7 +54,7 @@ final class Runtime
                     $context = $context($options->scope);
                 }
                 if (!is_iterable($context)) {
-                    $context = [];
+                    $context = is_object($context) ? get_object_vars($context) : [];
                 }
                 return $options->iterate($context);
             },
@@ -109,7 +109,7 @@ final class Runtime
     }
 
     /**
-     * Strict-mode key lookup: throw if $base is not an array or $key is absent.
+     * Strict-mode key lookup: throw if $key is absent from $base.
      * Unlike the null-coalescing pattern, this allows null values when the key exists.
      */
     public static function strictLookup(mixed $base, string $key): mixed
@@ -118,6 +118,8 @@ final class Runtime
             if (array_key_exists($key, $base)) {
                 return $base[$key];
             }
+        } elseif (is_object($base) && property_exists($base, $key)) {
+            return $base->$key;
         }
         $desc = match (true) {
             is_bool($base) => $base ? 'true' : 'false',
@@ -130,16 +132,29 @@ final class Runtime
 
     /**
      * assumeObjects / strict-helper-arg key lookup: throw if $base is null (mirroring JS
-     * TypeError for null/undefined property access); return null silently for a missing key on a
-     * valid array (mirroring JS returning undefined for a missing object property); return null for
-     * non-array non-null bases (mirroring JS returning undefined for property access on primitives).
+     * TypeError for null/undefined property access); return null silently for a missing key or
+     * a non-array/object base (mirroring JS returning undefined for non-existent properties).
      */
     public static function nullCheck(mixed $base, string $key): mixed
     {
         if ($base === null) {
-            throw new \ErrorException("Cannot access property \"$key\" on null");
+            throw new \Exception("Cannot access property \"$key\" on null");
         }
-        return is_array($base) ? ($base[$key] ?? null) : null;
+        return self::prop($base, $key);
+    }
+
+    /**
+     * Default key/property lookup for normal mode: $base[$key] for arrays, $base->$key for objects.
+     */
+    public static function prop(mixed $base, string $key): mixed
+    {
+        if (is_array($base)) {
+            return $base[$key] ?? null;
+        }
+        if (is_object($base)) {
+            return $base->$key ?? null;
+        }
+        return null;
     }
 
     /**
@@ -157,7 +172,7 @@ final class Runtime
         } elseif (is_string($base)) {
             return strlen($base);
         } else {
-            $v = $strict ? self::strictLookup($base, 'length') : null;
+            $v = $strict ? self::strictLookup($base, 'length') : self::prop($base, 'length');
         }
         return $v instanceof Closure ? $v() : $v;
     }
@@ -216,7 +231,7 @@ final class Runtime
      */
     public static function lookupValue(mixed $_this, string $name, bool $strict = false): mixed
     {
-        $v = $strict ? self::strictLookup($_this, $name) : ($_this[$name] ?? null);
+        $v = $strict ? self::strictLookup($_this, $name) : self::prop($_this, $name);
         return $v instanceof Closure ? $v($_this) : $v;
     }
 
@@ -237,7 +252,7 @@ final class Runtime
             } elseif ($strict) {
                 $value = self::strictLookup($_this, $name);
             } else {
-                $value = $assumeObjects ? self::nullCheck($_this, $name) : ($_this[$name] ?? null);
+                $value = $assumeObjects ? self::nullCheck($_this, $name) : self::prop($_this, $name);
             }
             if (!$strict) {
                 $value ??= $cx->helpers['helperMissing'];
@@ -260,10 +275,16 @@ final class Runtime
         if (is_array($in) && array_key_exists($name, $in)) {
             return $in[$name];
         }
+        if (is_object($in) && property_exists($in, $name)) {
+            return $in->$name;
+        }
         for ($i = count($cx->depths) - 1; $i >= 0; $i--) {
             $ctx = $cx->depths[$i];
             if (is_array($ctx) && array_key_exists($name, $ctx)) {
                 return $ctx[$name];
+            }
+            if (is_object($ctx) && property_exists($ctx, $name)) {
+                return $ctx->$name;
             }
         }
         return $strict ? self::strictLookup(null, $name) : null;

@@ -682,7 +682,7 @@ final class Compiler
         if ($data) {
             return '$cx->data' . str_repeat("['_parent']", $depth);
         }
-        return $depth > 0 ? "\$cx->depths[count(\$cx->depths)-$depth]" : '$in';
+        return $depth > 0 ? "(\$cx->depths[count(\$cx->depths)-$depth] ?? null)" : '$in';
     }
 
     /**
@@ -705,20 +705,6 @@ final class Compiler
             $expr = self::getRuntimeFunc($fn, "$expr, " . self::quote($part));
         }
         return $expr;
-    }
-
-    /**
-     * Build a chained array-access string for the given path parts.
-     * e.g. ['foo', 'bar'] → "['foo']['bar']"
-     * @param string[] $parts
-     */
-    private static function buildKeyAccess(array $parts): string
-    {
-        $n = '';
-        foreach ($parts as $part) {
-            $n .= '[' . self::quote($part) . ']';
-        }
-        return $n;
     }
 
     private function buildBlockHelperCall(string $helperExpr, string $escapedName, BlockStatement $block, string $fn, string $else): string
@@ -832,7 +818,7 @@ final class Compiler
         if ($this->options->strict) {
             return self::buildCallChain('strictLookup', $base, $parts);
         }
-        return $base . self::buildKeyAccess($parts) . ' ?? null';
+        return self::buildCallChain('prop', $base, $parts);
     }
 
     private function throwKnownHelpersOnly(string $helperName): never

@@ -61,6 +61,7 @@ class RegressionTest extends TestCase
     #[DataProvider("ifElseProvider")]
     #[DataProvider("sectionProvider")]
     #[DataProvider("contextProvider")]
+    #[DataProvider("objectProvider")]
     #[DataProvider("lengthProvider")]
     #[DataProvider("dataClosuresProvider")]
     #[DataProvider("missingDataProvider")]
@@ -2233,6 +2234,81 @@ class RegressionTest extends TestCase
                 'options' => new Options(compat: true),
                 'data' => ['name' => 'wrong', 'items' => [[]]],
                 'expected' => '',
+            ],
+        ];
+    }
+
+    /** @return array<string, RegIssue> */
+    public static function objectProvider(): array
+    {
+        return [
+            'object: single-property root context' => [
+                'template' => '{{name}}',
+                'data' => (object) ['name' => 'Alice'],
+                'expected' => 'Alice',
+            ],
+            'object: nested property lookup' => [
+                'template' => '{{user.name}}',
+                'data' => ['user' => (object) ['name' => 'Bob']],
+                'expected' => 'Bob',
+            ],
+            'object: deeply nested object properties' => [
+                'template' => '{{a.b.c}}',
+                'data' => ['a' => (object) ['b' => (object) ['c' => 'deep']]],
+                'expected' => 'deep',
+            ],
+            'object: missing property renders empty' => [
+                'template' => '{{user.missing}}',
+                'data' => ['user' => (object) ['name' => 'Carol']],
+                'expected' => '',
+            ],
+            'object: {{#with}} scopes to object' => [
+                'template' => '{{#with user}}{{name}}{{/with}}',
+                'data' => ['user' => (object) ['name' => 'Dan']],
+                'expected' => 'Dan',
+            ],
+            'object: {{#each}} iterates public properties' => [
+                'template' => '{{#each obj}}{{this}}{{/each}}',
+                'data' => ['obj' => (object) ['x' => '1', 'y' => '2']],
+                'expected' => '12',
+            ],
+            'object: block section treats object as new scope' => [
+                'template' => '{{#obj}}{{name}}{{/obj}}',
+                'data' => ['obj' => (object) ['name' => 'Eve']],
+                'expected' => 'Eve',
+            ],
+            'object: ../path traversal from inside object scope' => [
+                'template' => '{{#with user}}{{../title}}{{/with}}',
+                'data' => ['title' => 'Hello', 'user' => (object) ['name' => 'Frank']],
+                'expected' => 'Hello',
+            ],
+            'object: block params resolve properties on object items' => [
+                'template' => '{{#each items as |item|}}{{item.name}}{{/each}}',
+                'data' => ['items' => [(object) ['name' => 'Grace']]],
+                'expected' => 'Grace',
+            ],
+            'object: strict mode allows null-valued property' => [
+                'template' => '{{user.name}}',
+                'options' => new Options(strict: true),
+                'data' => ['user' => (object) ['name' => null]],
+                'expected' => '',
+            ],
+            'object: assumeObjects mode property access' => [
+                'template' => '{{user.name}}',
+                'options' => new Options(assumeObjects: true),
+                'data' => ['user' => (object) ['name' => 'Henry']],
+                'expected' => 'Henry',
+            ],
+            'object: explicit length property' => [
+                'template' => '{{obj.length}}',
+                'data' => ['obj' => (object) ['length' => 42]],
+                'expected' => '42',
+            ],
+            'object: compat mode falls through to parent when property absent from object' => [
+                'template' => '{{#each items}}{{name}}{{/each}}',
+                'options' => new Options(compat: true),
+                'data' => ['name' => 'parent', 'items' => [(object) []]],
+                'expected' => 'parent',
             ],
         ];
     }

@@ -89,6 +89,12 @@ class ErrorTest extends TestCase
                 'data' => ['foo' => 42],
                 'expected' => '"length" not defined in 42',
             ],
+            'strict mode .length on object without length property' => [
+                'template' => '{{foo.length}}',
+                'options' => new Options(strict: true),
+                'data' => ['foo' => (object) ['name' => 'test']],
+                'expected' => '"length" not defined in stdClass',
+            ],
             'strict mode null property access in if' => [
                 'template' => '{{#if foo.bar}}bad{{else}}OK{{/if}}',
                 'options' => new Options(strict: true),
