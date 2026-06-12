@@ -3,6 +3,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] Object Context - 2026-06-12
+
+### Added
+- Objects can now be used as context values alongside arrays. `{{#each}}` over an object iterates its public properties
+  ([#18](https://github.com/devtheorem/php-handlebars/issues/18)).
+- `.length` on strings is now supported.
+- `{{#each}}` now accepts `Traversable` inputs, including generators, without buffering them into an array first.
+
+### Changed
+- Strict mode errors now report the type of the value a missing property was looked up on (e.g. `"bar" not defined in array`).
+
+### Fixed
+- In compat mode, a property explicitly set to `null` no longer falls through to parent scopes, matching Mustache behavior.
+
+
 ## [2.0.0] Compat Mode - 2026-04-27
 
 ### Added
@@ -294,6 +309,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[2.1.0]: https://github.com/devtheorem/php-handlebars/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/devtheorem/php-handlebars/compare/v1.2.3...v2.0.0
 [1.2.3]: https://github.com/devtheorem/php-handlebars/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/devtheorem/php-handlebars/compare/v1.2.1...v1.2.2
