@@ -35,6 +35,15 @@ final class HelperOptions
     ) {}
 
     /**
+     * Reads a property from the given value regardless of whether it is an array or an object.
+     * Matches the Handlebars.js options.lookupProperty() method.
+     */
+    public function lookupProperty(mixed $parent, string|int $key): mixed
+    {
+        return Runtime::prop($parent, $key);
+    }
+
+    /**
      * Returns true if a partial with the given name is registered.
      */
     public function hasPartial(string $name): bool

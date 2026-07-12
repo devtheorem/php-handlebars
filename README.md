@@ -234,6 +234,10 @@ echo $template(['my_var' => null], $runtimeOptions); // Not equal
   Returns an empty string if no inverse block was provided.
   Accepts the same optional `$context` and `$data` arguments as `fn()`.
 
+* `lookupProperty(mixed $parent, string|int $key): mixed`: Reads a property from `$parent` without the
+  helper needing to know whether it's an array or an object, returning `$parent[$key]` for arrays,
+  `$parent->$key` for objects, and `null` for a missing key or any other value.
+
 * `hasPartial(string $name): bool`: Returns `true` if a partial with the given name is registered.
   Useful alongside `registerPartial()` to implement dynamic partial loading.
 
@@ -301,8 +305,8 @@ with the following exceptions:
 
 * Custom Decorators have not been implemented, as they are [deprecated in Handlebars.js](https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md).
 * The `data` compilation option has not been implemented.
-* The [runtime options to control prototype access](https://handlebarsjs.com/api-reference/runtime-options.html#options-to-control-prototype-access),
-along with the `lookupProperty()` helper option method have not been implemented, since they aren't relevant for PHP. 
+* The [runtime options to control prototype access](https://handlebarsjs.com/api-reference/runtime-options.html#options-to-control-prototype-access)
+have not been implemented, since they aren't relevant for PHP. 
 
 ## Mustache Compatibility
 

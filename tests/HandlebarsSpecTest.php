@@ -39,9 +39,6 @@ class HandlebarsSpecTest extends TestCase
             // Decorators are deprecated: https://github.com/handlebars-lang/handlebars.js/blob/master/docs/decorators-api.md
             || $spec['description'] === 'blocks - decorators'
 
-            // this method may be useful in JS, but not in PHP
-            || $spec['description'] === 'helpers - the lookupProperty-option'
-
             // PHP doesn't have the same concept of sparse arrays as JS, so there's no need to skip over holes.
             || $spec['it'] === 'GH-1065: Sparse arrays'
         ) {

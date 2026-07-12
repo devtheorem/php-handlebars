@@ -70,13 +70,7 @@ final class Runtime
                     : $options->fn($context, ['blockParams' => [$context]]);
             },
             'lookup' => static function (mixed $obj, string|int $key): mixed {
-                if (is_array($obj)) {
-                    return $obj[$key] ?? null;
-                }
-                if (is_object($obj)) {
-                    return $obj->$key ?? null;
-                }
-                return null;
+                return self::prop($obj, $key);
             },
             'log' => static function (mixed ...$args): string {
                 array_pop($args); // remove HelperOptions
@@ -146,7 +140,7 @@ final class Runtime
     /**
      * Default key/property lookup for normal mode: $base[$key] for arrays, $base->$key for objects.
      */
-    public static function prop(mixed $base, string $key): mixed
+    public static function prop(mixed $base, string|int $key): mixed
     {
         if (is_array($base)) {
             return $base[$key] ?? null;
