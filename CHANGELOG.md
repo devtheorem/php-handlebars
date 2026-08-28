@@ -3,11 +3,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [2.2.0] Empty String Lookup - 2026-08-28
 
 ### Added
 - `lookupProperty()` helper options method, which reads a property from a value regardless of whether it is an
   array or an object. Matches the Handlebars.js `options.lookupProperty()` API.
+
+### Changed
+- `blockHelperMissing` now renders the inverse/else block by default when the block expression is an empty string.
+  This improves compatibility with Mustache templates, where it is common to use a block section to conditionally
+  output a tag or attribute only if it has content. For example, if a `notes` context property is an empty string,
+  the following template will now produce `<button>Add note</button>` rather than `<p class="notes"></p>`:
+  ```hbs
+  {{#notes}}<p class="notes">{{notes}}</p>{{/notes}}
+  {{^notes}}<button>Add note</button>{{/notes}}
+  ```
 
 ## [2.1.0] Object Context - 2026-06-12
 
@@ -315,6 +325,7 @@ Initial release after forking from LightnCandy 1.2.6.
 - HTML documentation.
 - Dozens of unnecessary feature flags.
 
+[2.2.0]: https://github.com/devtheorem/php-handlebars/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/devtheorem/php-handlebars/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/devtheorem/php-handlebars/compare/v1.2.3...v2.0.0
 [1.2.3]: https://github.com/devtheorem/php-handlebars/compare/v1.2.2...v1.2.3
