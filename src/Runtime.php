@@ -87,17 +87,22 @@ final class Runtime
                 throw new \Exception('Missing helper: "' . $options->name . '"');
             },
             'blockHelperMissing' => static function (mixed $context, HelperOptions $options): string {
-                if ($context instanceof \Traversable) {
-                    return $options->iterate($context);
+                if ($context === true) {
+                    return $options->fn($options->scope); // true renders with the outer scope unchanged
                 }
-                if (is_array($context)) {
-                    return array_is_list($context) ? $options->iterate($context) : $options->fn($context);
-                }
-                if ($context === false || $context === null) {
+
+                // The empty string check deviates from Handlebars.js 4.7.9 to improve Mustache compatibility.
+                // Hopefully https://github.com/handlebars-lang/handlebars.js/pull/2178 will be merged to fix this.
+                if ($context === false || $context === null || $context === '') {
                     return $options->inverse($options->scope);
                 }
-                // true renders with the outer scope unchanged; any other truthy value becomes the new scope.
-                return $options->fn($context === true ? $options->scope : $context);
+
+                if (is_array($context) && array_is_list($context) || $context instanceof \Traversable) {
+                    return $options->iterate($context);
+                }
+
+                // all other values become the new scope and render the block
+                return $options->fn($context);
             },
         ];
     }

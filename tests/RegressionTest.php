@@ -2051,6 +2051,17 @@ class RegressionTest extends TestCase
                 'data' => ['items' => [['name' => 'Item', 'falsy' => false]], 'name' => 'Root'],
                 'expected' => 'Root',
             ],
+
+            'inverted section with empty string value' => [
+                'template' => '{{#goodbyes}}{{this}}{{/goodbyes}}{{^goodbyes}}Right On!{{/goodbyes}}',
+                'data' => ['goodbyes' => ''],
+                'expected' => 'Right On!',
+            ],
+            'inverted section with nested empty string value' => [
+                'template' => '{{#a.b}}yes{{else}}no{{/a.b}}',
+                'data' => ['a' => ['b' => '']],
+                'expected' => 'no',
+            ],
         ];
     }
 
