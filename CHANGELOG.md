@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   This improves compatibility with Mustache templates, where it is common to use a block section to conditionally
   output a tag or attribute only if it has content. For example, if a `notes` context property is an empty string,
   the following template will now produce `<button>Add note</button>` rather than `<p class="notes"></p>`:
+
   ```hbs
   {{#notes}}<p class="notes">{{notes}}</p>{{/notes}}
   {{^notes}}<button>Add note</button>{{/notes}}
